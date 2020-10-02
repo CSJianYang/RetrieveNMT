@@ -75,7 +75,7 @@ class TransformerModel(FairseqModel):
                             help='sets adaptive softmax dropout for the tail projections')
 
         #split setting
-        parser.add_argument('--word-split', type=str, metavar='D', choices=["Source-Retrive", "Source-Rsource-Rtarget"],
+        parser.add_argument('--word-split', type=str, metavar='D', choices=["Source-RetrieveSource", "Source-RetrieveSource-RetrieveTarget", "Dynamic-Source-RetrieveSource-RetrieveTarget"],
                             help='')
         parser.add_argument('--use-collate', action="store_true")
         parser.add_argument('--use-predictlayer', action='store_true',
@@ -197,8 +197,6 @@ class TransformerEncoder(FairseqEncoder):
 
         embed_dim = embed_tokens.embedding_dim
         self.padding_idx = embed_tokens.padding_idx
-        args.padding_idx = self.padding_idx
-        self.unk_id = self.args.unk_idx
         self.word_split = args.word_split
 
 
@@ -223,22 +221,22 @@ class TransformerEncoder(FairseqEncoder):
             self.layer_norm = LayerNorm(embed_dim)
 
         #
-        self.use_predictlayer = args.use_predictlayer
+        self.use_predictlayer = args.use_predictlayer if hasattr(args, "use_predictlayer") else True
         self.loss_weight = Weight(2) if self.use_predictlayer else None
         self.use_splitlayer = args.use_splitlayer
         self.use_copylayer = args.use_copylayer
         self.reset_position = args.reset_position
-        self.predict_loss = args.predict_loss
+        self.predict_loss = args.predict_loss if hasattr(args, "use_predictlayer") else True
 
         self.predictlayers = nn.ModuleList([])
-        if args.predict_loss:
+        if self.use_predictlayer:
             self.predictlayers.extend([
                 TransformerPredictLayer(args)
                 for _ in range(1)
             ])
         #self.splitlayer = TransformerEncoderLayer(args) if self.use_splitlayer else None
         #self.sourcelayer = TransformerEncoderLayer(args) if self.use_splitlayer else None
-        self.retrieve_number = args.retrieve_number
+        self.retrieve_number = args.retrieve_number if hasattr(args, "retrieve_number") else 5
         assert self.retrieve_number * 2 + 1 <= MAX_SEGMENT_EMBEDDINGS, "the number of retrieve sentences is too many !"
         self.retrieve_embed_tokens = Embedding(MAX_SEGMENT_EMBEDDINGS, embed_dim, self.padding_idx)
         if hasattr(args,"training_ratio"):
@@ -276,7 +274,7 @@ class TransformerEncoder(FairseqEncoder):
                 x += self.embed_positions(src_tokens)
             if self.retrieve_embed_tokens is not None:
                 x += self.retrieve_embed_tokens(src_tokens.new(src_tokens.size(0), src_tokens.size(1)).fill_(0)) #index 0 represent source segment embeddings
-
+            #source_retrieve_list = [rs1, rs2] target_retrieve_list = [rt1, rt2] -> [rs1, rt1, rs2, rt2]
             retrieve_tokens_list = list(itertools.chain.from_iterable(
                 zip(retrieve_source_tokens_list, retrieve_target_tokens_list)))
             retrieve_lengths_list = list(itertools.chain.from_iterable(
@@ -297,13 +295,6 @@ class TransformerEncoder(FairseqEncoder):
             elif len(src_tokens) == 3 and len(src_tokens) == 3:
                 src_tokens, Rsource_tokens, Rtarget_tokens = src_tokens
                 src_lengths, Rsource_lengths, Rtarget_lengths = src_lengths
-            if self.args.noise is not None and self.training:
-                assert len(self.args.noise.split(",")) == 3, "noise setting must be three probs"
-                self.padding_idx = self.args.padding_idx
-                self.unk_idx = self.args.unk_idx
-                self.shuffle_prob, self.drop_prob, self.unk_prob = [float(v) for v in self.args.noise.split(",")]
-                #retrive_tokens, retrive_lengths = self.add_noise(retrive_tokens, retrive_lengths)
-                src_tokens, src_lengths = self.add_noise(src_tokens, src_lengths) #only add noise to src tokens
 
             x = self.embed_scale * self.embed_tokens(src_tokens)
             x += self.embed_positions(src_tokens)
@@ -338,7 +329,7 @@ class TransformerEncoder(FairseqEncoder):
 
         predict_save_index = None
         for i, predictlayer in enumerate(self.predictlayers):
-            concat_x, predict_save_index, predict_prob, new_retrieve_tokens = predictlayer(concat_x, src_tokens, retrieve_tokens)
+            concat_x, predict_save_index, predict_prob, new_retrieve_tokens = predictlayer(concat_x, src_tokens, retrieve_tokens, encoder_states=encoder_states)
             concat_padding_mask = torch.cat([src_tokens, new_retrieve_tokens], dim=1).eq(self.padding_idx)
 
 
@@ -776,10 +767,10 @@ class TransformerPredictLayer(nn.Module):
         self.fc2 = Linear(args.encoder_ffn_embed_dim, self.embed_dim)
         self.final_layer_norm = LayerNorm(self.embed_dim)
         self.predict = Linear(self.embed_dim, 2)  #[save, drop]: [0,1] denotes save and [1,0] denotes drop
-        self.predict_loss = args.predict_loss
-        self.padding_idx = args.padding_idx
+        self.padding_idx = args.PAD_ID
+        self.layer_weight = Weight(args.encoder_layers, value=0)
 
-    def forward(self, concat_x, src_tokens, retrieve_tokens):
+    def forward(self, concat_x, src_tokens, retrieve_tokens, encoder_states=None):
         """
         Args:
             x (Tensor): input to the layer of shape `(seq_len, batch, embed_dim)`
@@ -794,6 +785,11 @@ class TransformerPredictLayer(nn.Module):
 
         concat_tokens = torch.cat([src_tokens, retrieve_tokens], dim=1) # B x T
         concat_padding_mask = concat_tokens.eq(self.padding_idx) # B x T
+
+        #T x B x H ->T x B x H X L
+        layer_weight = self.layer_weight.type_as(concat_x).unsqueeze(0).unsqueeze(1).unsqueeze(2)
+        concat_x = torch.stack(encoder_states, dim=-1) * torch.sigmoid(layer_weight)
+        concat_x = concat_x.sum(-1)
 
         residual = concat_x
         concat_x = self.maybe_layer_norm(self.self_attn_layer_norm, concat_x, before=True)
@@ -813,13 +809,11 @@ class TransformerPredictLayer(nn.Module):
         x = concat_x[:max_src_len,:,:]  # T1 x B x C
         retrieve_x = concat_x[max_src_len:,:,:] # T2 x B x C
 
-        predict_save_index = None
-        if self.predict_loss:
-            predict_result = self.predict(retrieve_x)
-            # 1 represents selected, 0 represents discarded
-            predict_save_index = predict_result.max(dim=2)[1].byte().transpose(0, 1)
-            predict_save_index = predict_save_index.masked_fill(~retrieve_padding_mask, 0)  # B x T
-            new_retrieve_tokens = retrieve_tokens.masked_fill(~predict_save_index, self.padding_idx)
+        predict_result = self.predict(retrieve_x)
+        # 1 represents selected, 0 represents discarded
+        predict_save_index = predict_result.max(dim=2)[1].byte().transpose(0, 1)
+        predict_save_index = predict_save_index.masked_fill(~retrieve_padding_mask, 0)  # B x T
+        new_retrieve_tokens = retrieve_tokens.masked_fill(~predict_save_index, self.padding_idx)
 
         return concat_x, predict_save_index, predict_result.transpose(0, 1), new_retrieve_tokens # T x B x c -> B x T x C
 
@@ -1150,7 +1144,12 @@ def PositionalEmbedding(num_embeddings, embedding_dim, padding_idx, left_pad, le
         m = SinusoidalPositionalEmbedding(embedding_dim, padding_idx, left_pad, num_embeddings + padding_idx + 1)
     return m
 
-
+def Weight(in_features, value=0.0):
+    m = nn.Parameter(torch.Tensor(in_features))
+    nn.init.constant_(m, value)
+    # nn.init.constant_(m, 1.0 / in_features)
+    # nn.init.constant_(m, 1.0)
+    return m
 
 
 @register_model_architecture('transformer', 'transformer')
@@ -1225,7 +1224,7 @@ def JRC_Aquis_transformer(args):
     args.decoder_output_dim = getattr(args, 'decoder_output_dim', args.decoder_embed_dim)
     args.decoder_input_dim = getattr(args, 'decoder_input_dim', args.decoder_embed_dim)
     #
-    args.word_split="Source-RetrieveSource-RetrieveTarget"
+    args.word_split=getattr(args, "word_split", "Source-RetrieveSource-RetrieveTarget")
     args.use_predictlayer = getattr(args, 'use_predictlayer', False)
     args.predict_loss = getattr(args, 'predict_loss', False)
     args.use_splitlayer = getattr(args, 'use_splitlayer', False)
@@ -1298,7 +1297,7 @@ def retrive_transformer(args):
 
     #
     args.word_split= getattr(args, 'word_split', 'Source-RetrieveSource-RetrieveTarget')
-    args.use_predictlayer = getattr(args, 'use_predictlayer', False)
+    #args.use_predictlayer = getattr(args, 'use_predictlayer', False)
     args.predict_loss = getattr(args, 'predict_loss', False)
     args.use_splitlayer = getattr(args, 'use_splitlayer', False)
     args.use_copylayer = getattr(args, 'use_copylayer', False)

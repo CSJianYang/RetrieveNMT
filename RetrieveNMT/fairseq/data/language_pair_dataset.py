@@ -406,6 +406,155 @@ def Source_RetrieveTarget_Collate(
     return batch
 
 
+def Dynamic_Source_RetrieveSource_RetrieveTarget_Collate(
+    samples, pad_idx, eos_idx, left_pad_source=True, left_pad_target=False,
+    input_feeding=True, args=None, training=True
+):
+    if len(samples) == 0:
+        return {}
+
+    def merge(key, left_pad, move_eos_to_beginning=False):
+        return data_utils.collate_tokens(
+            [s[key] for s in samples],
+            pad_idx, eos_idx, left_pad, move_eos_to_beginning,
+        )
+
+
+    def calculate_similarity_scores(source_words, retrieve_source_sentences):
+        source_words = set(source_words.tolist())
+        p_prob = []
+        for retrieve_sentence in retrieve_source_sentences:
+            retrieve_sentence = set(retrieve_sentence.tolist())
+            intersection = source_words & retrieve_sentence
+            occurences = len(intersection)
+            p_prob.append(occurences)
+        p_prob = torch.softmax(p_prob).tolist()
+        return p_prob
+
+
+    def Dynamic_Source_RetrieveSource_RetrieveTarget_Split(x, l, args=None):
+        """
+        split source words and retrive words.
+        x: Batch * TimeStep
+        sentence format(left pad) [pad, pad, pad, [APPEND], [SRC], x1, x2, x3, [TGT], y1, y2, y3, [SEP], [SRC], x1, x2, x3, [TGT], y1, y2, y3, [SEP], [eos]]
+        """
+        # choose word to drop
+        source_sentences = []
+        source_lengths = []
+        retrieve_source_sentences = [[]for _ in range(args.retrieve_number)]
+        retrieve_source_lengths = [[]for _ in range(args.retrieve_number)]
+        retrieve_target_sentences = [[]for _ in range(args.retrieve_number)]
+        retrieve_target_lengths = [[]for _ in range(args.retrieve_number)]
+        for i in range(l.size(0)):
+            words = x[i, -l[i]:]
+            append_position = (words == args.APPEND_ID).nonzero()
+            if len(append_position) == 1:
+                append_position = append_position[0][0]
+            else:
+                append_position = words.size(0)
+
+            if append_position > 0 and append_position < words.size(0):
+                source_words, retrieve_words = words[:append_position], words[append_position:]
+            elif append_position == 0:
+                source_words = x.new([args.UNK_ID])
+                retrieve_words = words
+            else:
+                source_words = words
+                retrieve_words = x.new([args.APPEND_ID])
+                # assert words.split(" "+str(args.APPEND_ID)+" ")  .__len__() == 2, "Retrive sequences must contain one [APPEND] tag! " + words + " len: " + str(words.split(" "+str(self.args.APPEND_ID)+" ").__len__()) + " sent len: {}".format(l[i]) + " APPEND_ID: {}".format(self.args.APPEND_ID)
+
+            source_sentences.append(source_words)
+            source_lengths.append(len(source_words))
+
+            sep_positions = (retrieve_words == args.SEP_ID).nonzero().tolist()
+            src_positions = (retrieve_words == args.SRC_ID).nonzero().tolist()
+            tgt_positions = (retrieve_words == args.TGT_ID).nonzero().tolist()
+            assert len(sep_positions) == len(src_positions) and len(sep_positions) == len(tgt_positions), "Please make sure [SEP] [SRC] [TGT] have the same number of occurrences"
+            retrieve_source_words_list = []
+            retrieve_target_words_list = []
+            for j in range(len(sep_positions)):
+                retrieve_source_words = retrieve_words[src_positions[j][0]: tgt_positions[j][0]]
+                retrieve_target_words = retrieve_words[tgt_positions[j][0]: sep_positions[j][0]]
+
+                retrieve_source_sentences[j].append(retrieve_source_words)
+                retrieve_source_lengths[j].append(len(retrieve_source_words))
+                retrieve_target_sentences[j].append(retrieve_target_words)
+                retrieve_target_lengths[j].append(len(retrieve_target_words))
+
+            total_retrieve_number = len(sep_positions)
+            p_prob = calculate_similarity_scores(source_words, retrieve_source_sentences[i])
+
+        # re-construct source input
+        l2 = l.new(source_lengths)
+        x2 = x.new(l2.size(0), l2.max()).fill_(args.PAD_ID)
+        for i in range(l2.size(0)):
+            x2[i, -l2[i]:].copy_(source_sentences[i])
+
+        multi_retrieve_source_x = []
+        multi_retrieve_target_x = []
+
+        multi_retrieve_source_l = []
+        multi_retrieve_target_l = []
+        for i in range(len(sep_positions)):
+            # re-construct retrieve source input
+            retrieve_source_l = l.new(retrieve_source_lengths[i])
+            retrieve_source_x = x.new(retrieve_source_l.size(0), retrieve_source_l.max()).fill_(args.PAD_ID)
+            for j in range(retrieve_source_l.size(0)):
+                retrieve_source_x[j, -retrieve_source_l[j]:].copy_(retrieve_source_sentences[i][j])
+            multi_retrieve_source_x.append(retrieve_source_x)
+            multi_retrieve_source_l.append(retrieve_source_l)
+
+            # re-construct retrieve target input
+            retrieve_target_l = l.new(retrieve_target_lengths[i])
+            retrieve_target_x = x.new(retrieve_target_l.size(0), retrieve_target_l.max()).fill_(args.PAD_ID)
+            for j in range(retrieve_target_l.size(0)):
+                retrieve_target_x[j, -retrieve_target_l[j]:].copy_(retrieve_target_sentences[i][j])
+            multi_retrieve_target_x.append(retrieve_target_x)
+            multi_retrieve_target_l.append(retrieve_target_l)
+
+        return (x2, l2), (multi_retrieve_source_x, multi_retrieve_source_l), (multi_retrieve_target_x, multi_retrieve_target_l)
+
+    id = torch.LongTensor([s['id'] for s in samples])
+    src_tokens = merge('source', left_pad=left_pad_source)
+    src_lengths = torch.LongTensor([s['source'].numel() for s in samples])
+    (src_tokens, src_lengths), (RetrieveSource_tokens, RetrieveSource_lengths), (RetrieveTarget_tokens, RetrieveTarget_lengths) = Dynamic_Source_RetrieveSource_RetrieveTarget_Split(src_tokens, src_lengths, args=args)
+
+    if args.noise is not None and training:
+        assert len(args.noise.split(",")) == 3, "noise setting must be three probs"
+        args.shuffle_prob, args.drop_prob, args.unk_prob = [float(v) for v in args.noise.split(",")]
+        src_tokens, src_lengths = add_noise(src_tokens, src_lengths)
+
+
+    prev_output_tokens = None
+    target = None
+    if samples[0].get('target', None) is not None:
+        target = merge('target', left_pad=left_pad_target)
+        ntokens = sum(len(s['target']) for s in samples)
+
+        if input_feeding:
+            prev_output_tokens = merge(
+                'target',
+                left_pad=left_pad_target,
+                move_eos_to_beginning=True,
+            )
+    else:
+        ntokens = sum(len(s['source']) for s in samples)
+
+    batch = {
+        'id': id,
+        'nsentences': len(samples),
+        'ntokens': ntokens,
+        'net_input': {
+            'src_tokens': [src_tokens, RetrieveSource_tokens, RetrieveTarget_tokens],
+            'src_lengths': [src_lengths, RetrieveSource_lengths, RetrieveTarget_lengths],
+        },
+        'target': target,
+    }
+    if prev_output_tokens is not None:
+        batch['net_input']['prev_output_tokens'] = prev_output_tokens
+    return batch
+
+
 def Source_RetrieveSource_RetrieveTarget_Collate(
     samples, pad_idx, eos_idx, left_pad_source=True, left_pad_target=False,
     input_feeding=True, args=None, training=True
@@ -640,14 +789,26 @@ class LanguagePairDataset(FairseqDataset):
 
     def collater(self, samples):
         self.args.training = self.training
+        # additional monolingual
         if self.args.word_split == "Source-RetrieveSource":
             return Source_RetrieveSource_Collate(
                 samples, pad_idx=self.src_dict.pad(), eos_idx=self.src_dict.eos(),
                 left_pad_source=self.left_pad_source, left_pad_target=self.left_pad_target,
                 input_feeding=self.input_feeding, args=self.args, training=self.training
             )
-        if self.args.word_split == "Source-RetrieveSource-RetrieveTarget":
+        # bilingual
+        elif self.args.word_split == "Source-RetrieveSource-RetrieveTarget":
+            # x1 x2 x3 [APPEDN] [SRC] x1 x2 x3 [TGT] y1 y2 [SEP] [SRC] x1 x2 x3 [TGT] y1 y2 [SEP]
+            #-> [x1 x2 x3] [[x1 x2 x3] [x1 x2 x3]] [[y1 y2] [y1 y2]]
             return Source_RetrieveSource_RetrieveTarget_Collate(
+                samples, pad_idx=self.src_dict.pad(), eos_idx=self.src_dict.eos(),
+                left_pad_source=self.left_pad_source, left_pad_target=self.left_pad_target,
+                input_feeding=self.input_feeding, args=self.args, training=self.training
+            )
+        elif self.args.word_split == "Dynamic-Source-RetrieveSource-RetrieveTarget":
+            # x1 x2 x3 [APPEDN] [SRC] x1 x2 x3 [TGT] y1 y2 [SEP] [SRC] x1 x2 x3 [TGT] y1 y2 [SEP]
+            #-> [x1 x2 x3] [[x1 x2 x3] [x1 x2 x3]] [[y1 y2] [y1 y2]]
+            return Dynamic_Source_RetrieveSource_RetrieveTarget_Collate(
                 samples, pad_idx=self.src_dict.pad(), eos_idx=self.src_dict.eos(),
                 left_pad_source=self.left_pad_source, left_pad_target=self.left_pad_target,
                 input_feeding=self.input_feeding, args=self.args, training=self.training
