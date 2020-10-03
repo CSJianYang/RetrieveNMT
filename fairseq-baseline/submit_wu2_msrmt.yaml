@@ -1,0 +1,38 @@
+description: submitjob
+
+target:
+  # which virtual cluster you belong to (msrlabs, etc.). Everyone has access to "msrlabs".
+  vc: msrmt
+  # physical cluster to use (cam, gcr, rr1, rr2) or Azure clusters (eu1, eu2, etc.)
+  cluster: wu2
+storage:
+  output:
+    storage_account_name: yangjianblob
+    container_name: phillytools
+  input:
+    storage_account_name: yangjianblob
+    container_name: phillytools
+
+environment:
+  registry: phillyregistry.azurecr.io
+  image: philly/jobs/custom/pytorch:fairseq-0.6.2
+code:
+  # local directory of the code. this will be uploaded to the server.
+  # $CONFIG_DIR is expanded to the directory of this config file
+  local_dir: $CONFIG_DIR/
+
+data:
+  data_upload: False
+  local_dir: /home/v-jiaya/RetriveNMT/data/document/NC-2016-sentence/data-bin/
+  remote_dir: RetriveNMT/data/document/NC-2016-sentence/data-bin/
+#  storage_id: input
+# data:
+#   data upload is not required for this example
+
+# list of jobs to run, we run 2 jobs in this example
+jobs:
+- name: train_NC-2016_en2de_sentence_3
+  sku: G4
+  command:
+    - bash ./train-wu2-scripts/train_NC-2016_en2de_sentence_3.sh
+
