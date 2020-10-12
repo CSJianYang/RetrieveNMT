@@ -202,6 +202,8 @@ def main(args):
         num_sentences, gen_timer.n, gen_timer.sum, num_sentences / gen_timer.sum, 1. / gen_timer.avg))
     if has_target:
         print('| Generate {} with beam={}: {}'.format(args.gen_subset, args.beam, scorer.result_string()))
+        with open("{}.baseline.BLEU".format(args.output), "a", encoding="utf-8") as w:
+            w.write('{}->{}: Generate {} with beam={} and lenpen={}: {}\n'.format(args.source_lang, args.target_lang, args.gen_subset, args.beam, args.lenpen, scorer.result_string()))
     trans_results.sort(key=lambda key: key[0])
     print(trans_results.__len__())
     print("saving translation result to {}...".format(args.output))

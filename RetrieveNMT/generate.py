@@ -3,7 +3,7 @@ import torch
 from fairseq import bleu, options, progress_bar, tasks, utils
 from fairseq.meters import StopwatchMeter, TimeMeter
 from fairseq.utils import import_user_module
-
+import itertools
 
 def main(args):
     assert args.path is not None, '--path required for generation!'
@@ -158,7 +158,11 @@ def main(args):
                 has_target = sample['target'] is not None
 
                 # Remove padding
-                src_tokens = utils.strip_pad(torch.cat(sample['net_input']['src_tokens'],dim=1)[i, :], tgt_dict.pad())
+                src_tokens, retrieve_source_tokens, retrieve_target_tokens = src_tokens
+                retrieve_tokens = list(itertools.chain.from_iterable(zip(retrieve_source_tokens, retrieve_target_tokens)))
+                retrieve_tokens = torch.cat(retrieve_tokens, dim=1)
+                all_tokens = torch.cat([src_tokens, retrieve_tokens], dim=1)
+                src_tokens = utils.strip_pad(all_tokens[i, :], tgt_dict.pad())
                 target_tokens = None
                 if has_target:
                     target_tokens = utils.strip_pad(sample['target'][i, :], tgt_dict.pad()).int().cpu()

@@ -219,20 +219,7 @@ class Dictionary(object):
         self._save(f, zip(ex_keys + self.symbols[self.nspecial:], ex_vals + self.count[self.nspecial:]))
 
     def dummy_sentence(self, length):
-        #retrive format
-        if '[SRC]' in self.indices.keys() and '[TGT]' in self.indices.keys() and '[SEP]' in self.indices.keys():
-            retrive_t = torch.LongTensor(
-                [self.indices['[APPEND]'], self.indices['[SRC]'], self.indices['<unk>'],
-                 self.indices['<unk>'], self.indices['[TGT]'], self.indices['<unk>'], self.indices['[SEP]'],
-                 self.indices['[SRC]'], self.indices['<unk>'],
-                 self.indices['<unk>'], self.indices['[TGT]'], self.indices['<unk>'], self.indices['[SEP]'],
-                 self.indices['</s>']])
-        elif '[SRC]' in self.indices.keys() and '[TGT]' in self.indices.keys() and '[BLANK]' in self.indices.keys():
-            retrive_t = torch.LongTensor([self.indices['[APPEND]'],self.indices['[SRC]'],self.indices['[BLANK]'],self.indices['[TGT]'],self.indices['[BLANK]'],self.indices['[SEP]'],self.indices['[SRC]'],self.indices['[BLANK]'],self.indices['[TGT]'],self.indices['[BLANK]'],self.indices['[SEP]'],self.indices['</s>']])
-        else:
-            retrive_t = torch.LongTensor([self.indices['[APPEND]'],self.indices['<unk>'],self.indices['</s>']])
-        src_t = torch.Tensor(length-retrive_t.size(0)).uniform_(self.indices['[APPEND]'] + 1, len(self)).long()
-        t = torch.cat([src_t,retrive_t], dim=0)
+        t = torch.Tensor(length).uniform_(self.nspecial + 1, len(self)).long()
         t[-1] = self.eos()
         return t
 

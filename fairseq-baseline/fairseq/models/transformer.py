@@ -1,10 +1,3 @@
-# Copyright (c) 2017-present, Facebook, Inc.
-# All rights reserved.
-#
-# This source code is licensed under the license found in the LICENSE file in
-# the root directory of this source tree. An additional grant of patent rights
-# can be found in the PATENTS file in the same directory.
-
 import math
 
 import torch
@@ -25,22 +18,6 @@ from . import (
 
 @register_model('transformer')
 class TransformerModel(FairseqModel):
-    """
-    Transformer model from `"Attention Is All You Need" (Vaswani, et al, 2017)
-    <https://arxiv.org/abs/1706.03762>`_.
-
-    Args:
-        encoder (TransformerEncoder): the encoder
-        decoder (TransformerDecoder): the decoder
-
-    The Transformer model provides the following named architectures and
-    command-line arguments:
-
-    .. argparse::
-        :ref: fairseq.models.transformer_parser
-        :prog:
-    """
-
     def __init__(self, encoder, decoder):
         super().__init__(encoder, decoder)
 
@@ -798,33 +775,17 @@ class TransformerDecoder(FairseqIncrementalDecoder):
         attn = None
 
         inner_states = [x]
-        #print("pretrain {}".format(pretrain))
-        if pretrain:
-            #encoder_padding_mask = prev_output_tokens.eq(self.padding_idx)
-            dim = x.size(0)
-            encoder_padding_mask = torch.zeros(dim, dim).cuda()
-            # decoder layers
-            for layer in self.layers:
-                x, attn = layer(
-                    x,
-                    None,
-                    None,
-                    incremental_state,
-                    self_attn_padding_mask=encoder_out['encoder_padding_mask'] if encoder_out is not None else None,
-                    self_attn_mask=encoder_padding_mask
-                )
-                inner_states.append(x)
-        else:
-            # decoder layers
-            for layer in self.layers:
-                x, attn = layer(
-                    x,
-                    encoder_out['encoder_out'] if encoder_out is not None else None,
-                    encoder_out['encoder_padding_mask'] if encoder_out is not None else None,
-                    incremental_state,
-                    self_attn_mask=self.buffered_future_mask(x) if incremental_state is None else None,
-                )
-                inner_states.append(x)
+
+        # decoder layers
+        for layer in self.layers:
+            x, attn = layer(
+                x,
+                encoder_out['encoder_out'] if encoder_out is not None else None,
+                encoder_out['encoder_padding_mask'] if encoder_out is not None else None,
+                incremental_state,
+                self_attn_mask=self.buffered_future_mask(x) if incremental_state is None else None,
+            )
+            inner_states.append(x)
 
         if self.normalize:
             x = self.layer_norm(x)
@@ -1290,36 +1251,6 @@ def my_transformer(args):
 
     args.decoder_output_dim = getattr(args, 'decoder_output_dim', args.decoder_embed_dim)
     args.decoder_input_dim = getattr(args, 'decoder_input_dim', args.decoder_embed_dim)
-
-@register_model_architecture('transformer', 'my_transformer_relative_position_embeddings')
-def my_transformer(args):
-    args.encoder_embed_path = getattr(args, 'encoder_embed_path', None)
-    args.encoder_embed_dim = getattr(args, 'encoder_embed_dim', 512)
-    args.encoder_ffn_embed_dim = getattr(args, 'encoder_ffn_embed_dim', 2048)
-    args.encoder_layers = getattr(args, 'encoder_layers', 6)
-    args.encoder_attention_heads = getattr(args, 'encoder_attention_heads', 8)
-    args.encoder_normalize_before = getattr(args, 'encoder_normalize_before', True)
-    args.encoder_learned_pos = getattr(args, 'encoder_learned_pos', False)
-    args.decoder_embed_path = getattr(args, 'decoder_embed_path', None)
-    args.decoder_embed_dim = getattr(args, 'decoder_embed_dim', args.encoder_embed_dim)
-    args.decoder_ffn_embed_dim = getattr(args, 'decoder_ffn_embed_dim', args.encoder_ffn_embed_dim)
-    args.decoder_layers = getattr(args, 'decoder_layers', 6)
-    args.decoder_attention_heads = getattr(args, 'decoder_attention_heads', 8)
-    args.decoder_normalize_before = getattr(args, 'decoder_normalize_before', True)
-    args.decoder_learned_pos = getattr(args, 'decoder_learned_pos', False)
-    args.attention_dropout = getattr(args, 'attention_dropout', 0.1)
-    args.relu_dropout = getattr(args, 'relu_dropout', 0.1)
-    args.dropout = getattr(args, 'dropout', 0.1)
-    args.adaptive_softmax_cutoff = getattr(args, 'adaptive_softmax_cutoff', None)
-    args.adaptive_softmax_dropout = getattr(args, 'adaptive_softmax_dropout', 0)
-    args.share_decoder_input_output_embed = getattr(args, 'share_decoder_input_output_embed', False)
-    args.share_all_embeddings = getattr(args, 'share_all_embeddings', False)
-    args.no_token_positional_embeddings = getattr(args, 'no_token_positional_embeddings', True)
-    args.adaptive_input = getattr(args, 'adaptive_input', False)
-
-    args.decoder_output_dim = getattr(args, 'decoder_output_dim', args.decoder_embed_dim)
-    args.decoder_input_dim = getattr(args, 'decoder_input_dim', args.decoder_embed_dim)
-
 
 
 @register_model_architecture('transformer', 'transformer_wmt_en_de')

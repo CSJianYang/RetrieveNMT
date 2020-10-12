@@ -606,7 +606,7 @@ def Source_RetrieveSource_RetrieveTarget_Collate(
             src_positions = (retrieve_words == args.SRC_ID).nonzero().tolist()
             tgt_positions = (retrieve_words == args.TGT_ID).nonzero().tolist()
             assert len(sep_positions) == len(src_positions) and len(sep_positions) == len(tgt_positions), "Please make sure [SEP] [SRC] [TGT] have the same number of occurrences"
-            for j in range(len(sep_positions)):
+            for j in range(min(len(sep_positions), args.retrieve_number)):
                 retrieve_source_words = retrieve_words[src_positions[j][0]: tgt_positions[j][0]]
                 retrieve_target_words = retrieve_words[tgt_positions[j][0]: sep_positions[j][0]]
 
@@ -626,7 +626,7 @@ def Source_RetrieveSource_RetrieveTarget_Collate(
 
         multi_retrieve_source_l = []
         multi_retrieve_target_l = []
-        for i in range(len(sep_positions)):
+        for i in range(min(len(sep_positions), args.retrieve_number)):
             # re-construct retrieve source input
             retrieve_source_l = l.new(retrieve_source_lengths[i])
             retrieve_source_x = x.new(retrieve_source_l.size(0), retrieve_source_l.max()).fill_(args.PAD_ID)

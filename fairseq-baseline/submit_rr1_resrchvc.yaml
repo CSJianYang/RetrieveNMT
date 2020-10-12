@@ -23,16 +23,20 @@ code:
 
 data:
   data_upload: False
-  local_dir: /home/v-jiaya/RetrieveNMT/data/MD/en-de/concat/data-bin/
-  remote_dir: RetrieveNMT/data/MD/en-de/concat/data-bin/
+  local_dir: /home/v-jiaya/RetrieveNMT/data/MD/retrieve-de2en-top2/concat/data-bin/
+  remote_dir: RetrieveNMT/data/MD/retrieve-de2en-top2/concat/data-bin/
 #  storage_id: input
 # data:
 #   data upload is not required for this example
 
 # list of jobs to run, we run 2 jobs in this example
 jobs:
-- name: MD_train_en2de
+- name: MD_train_en2de_TM
   sku: G8
   command:
-    - bash ./shells/MD/train_en2de.sh
+    - bash ./shells/MD/train_en2de_TM.sh
+- name: MD_train_de2en_TM
+  sku: G8
+  command:
+    - bash ./shells/MD/train_de2en_TM.sh
 

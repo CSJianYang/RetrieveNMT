@@ -92,12 +92,23 @@ public class SearchFiles
             FileWriter fw = new FileWriter(file);
             IndexSearcher searcher = createSearcher(indexPath);
             for(int i=0; i<testList.size(); ++i){
-                TopDocs foundDocs=null;
+                TopDocs foundDocs=null;          
                 if("source".equals(search)){
-                    foundDocs = searchBySource(testList.get(i), searcher, topN);
+                    if (!testList.get(i).equals("")){
+                        foundDocs = searchBySource(testList.get(i), searcher, topN);
+                    }
+                    else{
+                        foundDocs = searchBySource("unk", searcher, topN);
+                    }
+                    //foundDocs = searchBySource("\n", searcher, topN);
                 }
                 else{
-                    foundDocs = searchByTarget(testList.get(i), searcher, topN);
+                    if (!testList.get(i).equals("")){
+                        foundDocs = searchByTarget(testList.get(i), searcher, topN);
+                    }
+                    else{
+                        foundDocs = searchBySource("unk", searcher, topN);
+                    }
                 } 
                 if(i%100==0){
                     System.out.println("have proceeded " + i + " lines.");
@@ -125,7 +136,7 @@ public class SearchFiles
                             //System.out.println("Skipping first result!");
                             continue;
                         }
-                        //System.out.println(String.format(d.get("source")));
+                        //System.out.println(d.get("source"));
                         //System.out.println(String.format(d.get("target")));
                         if(count < foundDocs.scoreDocs.length - 1){
                             fw.write("[SRC] "+d.get("source")+" [TGT] "+d.get("target")+" [SEP] ");
@@ -156,6 +167,9 @@ public class SearchFiles
     private static TopDocs searchBySource(String source, IndexSearcher searcher, int topN) throws Exception
     {
         QueryParser qp = new QueryParser("source", new StandardAnalyzer());
+        //source=source.replaceAll("[^a-zA-Z]","");
+        //source=source.replace("+","").replace("-","").replace("(","").replace("*","").replace("[","").replace("{","");
+        //System.out.println(source);
         Query SourceQuery = qp.parse(QueryParser.escape(source).toLowerCase());
         TopDocs hits = searcher.search(SourceQuery, topN);
         return hits;

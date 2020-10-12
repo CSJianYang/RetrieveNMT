@@ -20,8 +20,10 @@ class LabelSmoothedCrossEntropyCriterion(FairseqCriterion):
         self.eps = args.label_smoothing
         self.args = args
         self.softmax_temperature = math.sqrt(args.encoder_embed_dim)
-        self.predict_loss = self.args.predict_loss
+        self.use_predictlayer = self.args.use_predictlayer
         self.min_weight = 0.01
+        self.n_gram = args.n_gram
+        self.PAD_ID = args.PAD_ID
 
     @staticmethod
     def add_args(parser):
@@ -43,7 +45,7 @@ class LabelSmoothedCrossEntropyCriterion(FairseqCriterion):
         net_output = model(**sample['net_input'])
 
 
-        if self.predict_loss:
+        if self.use_predictlayer:
             generate_loss, generate_nll_loss = self.compute_loss(model, net_output, sample, reduce=True)
             predict_loss, predict_nll_loss = self.compute_predict_loss(model, net_output, sample, reduce=True)
             weight1 = 1.0
@@ -79,6 +81,7 @@ class LabelSmoothedCrossEntropyCriterion(FairseqCriterion):
 
     def compute_predict_loss(self, model, net_output, sample, reduce=True):
         target = model.get_targets(sample, net_output)
+        src_tokens = sample['net_input']['src_tokens']
         orig_retrieve_tokens = net_output[1]['orig_retrieve_tokens'].tolist()
         batch_size = net_output[1]['orig_retrieve_tokens'].size(0)
         retrieve_len = net_output[1]['orig_retrieve_tokens'].size(1)
@@ -88,10 +91,21 @@ class LabelSmoothedCrossEntropyCriterion(FairseqCriterion):
                 if orig_retrieve_tokens[i][j] in [self.args.APPEND_ID, self.args.SRC_ID, self.args.TGT_ID, self.args.SEP_ID]:
                     predict_groudtruth[i][j] = 1
                     continue
-                if orig_retrieve_tokens[i][j] in target[i].tolist():
-                    predict_groudtruth[i,j] = 1
+                elif orig_retrieve_tokens[i][j] != self.PAD_ID and orig_retrieve_tokens[i][j] in target[i].tolist():
+                    #predict_groudtruth[i,j] = 1
+                    left_range = max(0, j - self.n_gram)
+                    right_range = min(retrieve_len, j + self.n_gram + 1)
+                    predict_groudtruth[i,left_range:right_range] = 1
+                    continue
+                elif orig_retrieve_tokens[i][j] != self.PAD_ID and orig_retrieve_tokens[i][j] in src_tokens[0][i].tolist():
+                    #predict_groudtruth[i,j] = 1
+                    left_range = max(0, j - self.n_gram)
+                    right_range = min(retrieve_len, j + self.n_gram + 1)
+                    predict_groudtruth[i,left_range:right_range] = 1
+                    continue
                 else:
                     predict_groudtruth[i,j] = 0
+
         predict_groudtruth = predict_groudtruth.view(-1, 1)
 
         lprobs = model.get_normalized_probs([net_output[1]['predict_prob']], log_probs=True)

@@ -1,3 +1,14 @@
+#!/usr/bin/env python3 -u
+# Copyright (c) 2017-present, Facebook, Inc.
+# All rights reserved.
+#
+# This source code is licensed under the license found in the LICENSE file in
+# the root directory of this source tree. An additional grant of patent rights
+# can be found in the PATENTS file in the same directory.
+"""
+Train a new model on one or across multiple GPUs.
+"""
+
 import collections
 import itertools
 import math
@@ -20,17 +31,14 @@ def main(args, init_distributed=False):
         args.max_tokens = 6000
     print(args)
 
+
+
     if torch.cuda.is_available() and not args.cpu:
         torch.cuda.set_device(args.device_id)
     torch.manual_seed(args.seed)
 
     # Setup task, e.g., translation, language modeling, etc.
     task = tasks.setup_task(args)
-
-    # Load dataset splits
-    load_dataset_splits(args, task)
-
-    ###get [APPEND] [SRC] [TGT] [SEP] symbol id
     args.unk_idx = task.src_dict.indices['<unk>']
     args.dict_len = task.src_dict.indices.__len__()
     if '[APPEND]' in task.src_dict.indices.keys():
@@ -61,6 +69,9 @@ def main(args, init_distributed=False):
         args.PAD_ID = task.src_dict.indices['<pad>']
     else:
         args.PAD_ID = -1
+
+    # Load dataset splits
+    load_dataset_splits(args, task)
 
     # Build model and criterion
     model = task.build_model(args)
@@ -113,8 +124,6 @@ def main(args, init_distributed=False):
         args.distributed_rank = distributed_utils.distributed_init(args)
         print('| initialized host {} as rank {}'.format(socket.gethostname(), args.distributed_rank))
 
-    model.args = args
-
     # Load the latest checkpoint if one is available
     print("Load the latest checkpoint if one is available...")
     load_checkpoint(args, trainer, epoch_itr)
@@ -131,6 +140,7 @@ def main(args, init_distributed=False):
     valid_losses = [None]
     valid_subsets = args.valid_subset.split(',')
 
+
     if args.distributed_rank == 0:
         if os.path.basename(args.save_dir) != "":
             log_file = os.path.join(args.save_dir, "({0})-params.log".format(os.path.basename(args.save_dir)))
@@ -139,17 +149,14 @@ def main(args, init_distributed=False):
         # create log file
         args.log_file = log_file
         if os.path.exists(log_file):
-            print("It exists log file {}, add log to the file".format(log_file))
             w = open(log_file, "a+", encoding="utf-8")
         else:
-            print("It does not exists log file {}, create log file".format(log_file))
             w = open(log_file, "w", encoding="utf-8")
         w.write(str(args).replace(", ", ",\n")+"\n")
         w.write(str(model)+"\n")
         w.flush()
         w.close()
         print("saving params file into{}...".format(log_file))
-
     while lr > args.min_lr and epoch_itr.epoch < max_epoch and trainer.get_num_updates() < max_update:
         # train for one epoch
         train(args, trainer, task, epoch_itr)
@@ -194,13 +201,10 @@ def train(args, trainer, task, epoch_itr):
         # log mid-epoch stats
         stats = get_training_stats(trainer)
         for k, v in log_output.items():
-            if k in ['loss', 'nll_loss', 'generate_loss', 'generate_nll_loss', 'predict_loss', 'predict_nll_loss', 'ntokens', 'nsentences', 'sample_size']:
+            if k in ['loss', 'nll_loss', 'ntokens', 'nsentences', 'sample_size']:
                 continue  # these are already logged above
             if 'loss' in k:
                 extra_meters[k].update(v, log_output['sample_size'])
-            elif k in ['src_tokens', 'target_tokens', 'select_retrive_tokens']:
-                extra_meters[k] = v
-                continue
             else:
                 extra_meters[k].update(v)
             stats[k] = extra_meters[k].avg
@@ -226,7 +230,7 @@ def train(args, trainer, task, epoch_itr):
 
     # reset training meters
     for k in [
-        'train_loss', 'train_nll_loss', 'train_generate_loss', 'train_generate_nll_loss', 'train_predict_loss', 'train_predict_nll_loss', 'wps', 'ups', 'wpb', 'bsz', 'gnorm', 'clip',
+        'train_loss', 'train_nll_loss', 'wps', 'ups', 'wpb', 'bsz', 'gnorm', 'clip',
     ]:
         meter = trainer.get_meter(k)
         if meter is not None:
@@ -241,27 +245,7 @@ def get_training_stats(trainer):
         stats['nll_loss'] = nll_loss
     else:
         nll_loss = trainer.get_meter('train_loss')
-
-    stats['generate_loss'] = trainer.get_meter('train_generate_loss')
-    if trainer.get_meter('train_generate_nll_loss').count > 0:
-        generate_nll_loss = trainer.get_meter('train_generate_nll_loss')
-        stats['generate_nll_loss'] = generate_nll_loss
-    else:
-        generate_nll_loss = trainer.get_meter('train_gnerate_loss')
-
-    stats['predict_loss'] = trainer.get_meter('train_predict_loss')
-    if trainer.get_meter('train_predict_nll_loss').count > 0:
-        predict_nll_loss = trainer.get_meter('train_predict_nll_loss')
-        stats['predict_nll_loss'] = predict_nll_loss
-    else:
-        predict_nll_loss = trainer.get_meter('train_predict_loss')
-
-
     stats['ppl'] = get_perplexity(nll_loss.avg)
-    stats['generate_ppl'] = get_perplexity(generate_nll_loss.avg)
-    stats['predict_ppl'] = get_perplexity(predict_nll_loss.avg)
-    stats['loss_weight'] = [round(w, 2) for w in trainer.get_meter('loss_weight')]
-
     stats['wps'] = trainer.get_meter('wps')
     stats['ups'] = trainer.get_meter('ups')
     stats['wpb'] = trainer.get_meter('wpb')
@@ -275,7 +259,6 @@ def get_training_stats(trainer):
         stats['loss_scale'] = trainer.get_meter('loss_scale')
     stats['wall'] = round(trainer.get_meter('wall').elapsed_time)
     stats['train_wall'] = trainer.get_meter('train_wall')
-
     return stats
 
 
@@ -306,7 +289,7 @@ def validate(args, trainer, task, epoch_itr, subsets):
         )
 
         # reset validation loss meters
-        for k in ['valid_loss', 'valid_nll_loss', 'valid_generate_loss', 'valid_generate_nll_loss', 'valid_predict_loss', 'valid_predict_nll_loss']:
+        for k in ['valid_loss', 'valid_nll_loss']:
             meter = trainer.get_meter(k)
             if meter is not None:
                 meter.reset()
@@ -316,17 +299,16 @@ def validate(args, trainer, task, epoch_itr, subsets):
             log_output = trainer.valid_step(sample)
 
             for k, v in log_output.items():
-                if k in ['loss', 'nll_loss', 'generate_loss', 'generate_nll_loss', 'predict_loss', 'predict_nll_loss', 'ntokens', 'nsentences', 'sample_size']:
+                if k in ['loss', 'nll_loss', 'ntokens', 'nsentences', 'sample_size']:
                     continue
                 extra_meters[k].update(v)
-            if args.debug:
-                break
 
         # log validation stats
         stats = get_valid_stats(trainer)
         for k, meter in extra_meters.items():
             stats[k] = meter.avg
         progress.print(stats, tag=subset, step=trainer.get_num_updates())
+
         valid_losses.append(stats['loss'].avg)
     return valid_losses
 
@@ -339,35 +321,10 @@ def get_valid_stats(trainer):
         stats['nll_loss'] = nll_loss
     else:
         nll_loss = stats['loss']
-
-    stats['generate_loss'] = trainer.get_meter('valid_generate_loss')
-    if trainer.get_meter('valid_generate_nll_loss').count > 0:
-        generate_nll_loss = trainer.get_meter('valid_generate_nll_loss')
-        stats['generate_nll_loss'] = generate_nll_loss
-    else:
-        generate_nll_loss = stats['generate_loss']
-
-    stats['predict_loss'] = trainer.get_meter('valid_predict_loss')
-    if trainer.get_meter('valid_predict_nll_loss').count > 0:
-        predict_nll_loss = trainer.get_meter('valid_predict_nll_loss')
-        stats['predict_nll_loss'] = predict_nll_loss
-    else:
-        predict_nll_loss = stats['predict_loss']
-
-
     stats['ppl'] = get_perplexity(nll_loss.avg)
-    stats['generate_ppl'] = get_perplexity(generate_nll_loss.avg)
-    stats['predict_ppl'] = get_perplexity(predict_nll_loss.avg)
-
-
     stats['num_updates'] = trainer.get_num_updates()
     if hasattr(save_checkpoint, 'best'):
-        stats['best_loss'] = min(save_checkpoint.best, stats['generate_loss'].avg)
-
-    #
-    #stats['src_tokens'] = "\t".join(trainer.get_meter('src_tokens'))
-    #stats['target_tokens'] = "\t".join(trainer.get_meter('target_tokens'))
-    #stats['select_retrive_tokens'] = "\t".join(trainer.get_meter('select_retrive_tokens'))
+        stats['best_loss'] = min(save_checkpoint.best, stats['loss'].avg)
     return stats
 
 
@@ -471,12 +428,12 @@ def load_checkpoint(args, trainer, epoch_itr):
 
 
 def load_dataset_splits(args, task):
-    task.load_dataset(args.train_subset, combine=True, mask_subset=args.mask_subset, src_mask=args.src_mask, tgt_mask=args.tgt_mask, args=args)
+    task.load_dataset(args.train_subset, combine=True, mask_subset=args.mask_subset, src_mask=args.src_mask, tgt_mask=args.tgt_mask)
     for split in args.valid_subset.split(','):
         for k in itertools.count():
             split_k = split + (str(k) if k > 0 else '')
             try:
-                task.load_dataset(split_k, combine=False, args=args)
+                task.load_dataset(split_k, combine=False)
             except FileNotFoundError as e:
                 if k > 0:
                     break
@@ -493,16 +450,19 @@ def distributed_main(i, args):
 def cli_main():
     parser = options.get_training_parser()
     args = options.parse_args_and_arch(parser)
-
+    
+    # params_file = os.path.join(os.path.dirname(args.save_dir),"({0})-params.log".format(os.path.basename(args.save_dir)))
+    # with open(params_file,"w",encoding="utf-8") as w:
+    #     w.write(str(args).replace(", ",",\n"))
+    #     print("saving params file into{}...".format(params_file))
 
     if args.distributed_init_method is None:
         distributed_utils.infer_init_method(args)
 
-    #args.distributed_world_size = 1
-    #args.cpu = True
     if args.debug:
         args.distributed_world_size = 1
-        args.train_subset=args.valid_subset
+        args.train_subset = args.valid_subset
+    #args.cpu = True
     if args.distributed_init_method is not None:
         # distributed training
         distributed_main(args.device_id, args)

@@ -429,7 +429,9 @@ def cli_main():
     if args.distributed_init_method is None:
         distributed_utils.infer_init_method(args)
 
-    #args.distributed_world_size = 1
+    if args.debug:
+        args.distributed_world_size = 1
+        args.train_subset = args.valid_subset
     #args.cpu = True
     if args.distributed_init_method is not None:
         # distributed training

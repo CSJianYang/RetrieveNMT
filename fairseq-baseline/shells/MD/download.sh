@@ -1,0 +1,5 @@
+bash philly-fs.bash -cp -r //philly/rr1/resrchvc/t-jianya/RetrieveNMT/data/MD/en-de/concat/model/en2de-base1/checkpoint_best.pt  /home/v-jiaya/RetrieveNMT/data/MD/en-de/concat/model/en2de-base1/
+bash philly-fs.bash -cp -r //philly/rr1/resrchvc/t-jianya/RetrieveNMT/data/MD/en-de/concat/model/de2en-base1/checkpoint_best.pt  /home/v-jiaya/RetrieveNMT/data/MD/en-de/concat/model/de2en-base1/
+
+bash philly-fs.bash -cp -r //philly/rr1/resrchvc/t-jianya/RetrieveNMT/data/MD/retrieve-de2en-top2/concat/model/de2en-TM-base1/checkpoint_best.pt  /home/v-jiaya/RetrieveNMT/data/MD/retrieve-de2en-top2/concat/model/de2en-TM-base1/
+bash philly-fs.bash -cp -r //philly/rr1/resrchvc/t-jianya/RetrieveNMT/data/MD/retrieve-en2de-top2/concat/model/en2de-TM-base1/checkpoint_best.pt  /home/v-jiaya/RetrieveNMT/data/MD/retrieve-en2de-top2/concat/model/en2de-TM-base1/

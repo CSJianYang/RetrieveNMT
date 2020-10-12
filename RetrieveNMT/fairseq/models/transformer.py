@@ -77,7 +77,6 @@ class TransformerModel(FairseqModel):
         #split setting
         parser.add_argument('--word-split', type=str, metavar='D', choices=["Source-RetrieveSource", "Source-RetrieveSource-RetrieveTarget", "Dynamic-Source-RetrieveSource-RetrieveTarget"],
                             help='')
-        parser.add_argument('--use-collate', action="store_true")
         parser.add_argument('--use-predictlayer', action='store_true',
                             help='use select layer in encoder')
         parser.add_argument('--predict-loss', action='store_true',
@@ -88,13 +87,13 @@ class TransformerModel(FairseqModel):
                             help='use select layer in encoder')
         parser.add_argument('--gate-method', type=str, metavar='STR',
                             help='')
-        parser.add_argument('--reset-position', action='store_true',
-                            help='reset position of retrive sentences')
         parser.add_argument('--retrieve-number', type=int, metavar='N',
                             help='')
         parser.add_argument('--noise', type=str, help='')
         parser.add_argument('--training-ratio', type=float, help='')
         parser.add_argument('--scale', type=float, help='')
+        parser.add_argument('--n-gram', type=int, metavar='N',
+                            help='')
 
 
         # fmt: on
@@ -222,28 +221,18 @@ class TransformerEncoder(FairseqEncoder):
 
         #
         self.use_predictlayer = args.use_predictlayer if hasattr(args, "use_predictlayer") else True
-        self.loss_weight = Weight(2) if self.use_predictlayer else None
-        self.use_splitlayer = args.use_splitlayer
+        #self.loss_weight = Weight(2) if self.use_predictlayer else None
+        #self.use_splitlayer = args.use_splitlayer
         self.use_copylayer = args.use_copylayer
-        self.reset_position = args.reset_position
-        self.predict_loss = args.predict_loss if hasattr(args, "use_predictlayer") else True
-
         self.predictlayers = nn.ModuleList([])
         if self.use_predictlayer:
             self.predictlayers.extend([
                 TransformerPredictLayer(args)
                 for _ in range(1)
             ])
-        #self.splitlayer = TransformerEncoderLayer(args) if self.use_splitlayer else None
-        #self.sourcelayer = TransformerEncoderLayer(args) if self.use_splitlayer else None
-        self.retrieve_number = args.retrieve_number if hasattr(args, "retrieve_number") else 5
+        self.retrieve_number = args.retrieve_number if hasattr(args, "retrieve_number") else 2
         assert self.retrieve_number * 2 + 1 <= MAX_SEGMENT_EMBEDDINGS, "the number of retrieve sentences is too many !"
         self.retrieve_embed_tokens = Embedding(MAX_SEGMENT_EMBEDDINGS, embed_dim, self.padding_idx)
-        if hasattr(args,"training_ratio"):
-            self.training_ratio = args.training_ratio
-        else:
-            self.training_ratio = 0.5
-
 
 
     def forward(self, src_tokens, src_lengths):
@@ -319,6 +308,7 @@ class TransformerEncoder(FairseqEncoder):
                 Rtarget_tokens = None
 
         concat_x = torch.cat([x, retrieve_x], dim=1).transpose(0, 1)
+        concat_x = F.dropout(concat_x, p=self.dropout, training=self.training)
         concat_padding_mask = torch.cat([src_tokens, retrieve_tokens], dim=1).eq(self.padding_idx)
         # encoder layers
         encoder_states = []
@@ -545,8 +535,6 @@ class TransformerDecoder(FairseqIncrementalDecoder):
                 self_attn_mask=self.buffered_future_mask(x) if incremental_state is None else None,
             )
             inner_states.append(x)
-
-
 
         if self.normalize:
             x = self.layer_norm(x)
@@ -1195,120 +1183,23 @@ def transformer_iwslt_de_en(args):
     base_architecture(args)
 
 
-@register_model_architecture('transformer', 'JRC_Acquis_transformer')
+@register_model_architecture('transformer', 'retrieve_transformer')
 def JRC_Aquis_transformer(args):
-    args.encoder_embed_path = getattr(args, 'encoder_embed_path', None)
-    args.encoder_embed_dim = getattr(args, 'encoder_embed_dim', 512)
-    args.encoder_ffn_embed_dim = getattr(args, 'encoder_ffn_embed_dim', 2048)
-    args.encoder_layers = getattr(args, 'encoder_layers', 6)
-    args.encoder_attention_heads = getattr(args, 'encoder_attention_heads', 8)
-    args.encoder_normalize_before = getattr(args, 'encoder_normalize_before', True)
-    args.encoder_learned_pos = getattr(args, 'encoder_learned_pos', False)
-    args.decoder_embed_path = getattr(args, 'decoder_embed_path', None)
-    args.decoder_embed_dim = getattr(args, 'decoder_embed_dim', args.encoder_embed_dim)
-    args.decoder_ffn_embed_dim = getattr(args, 'decoder_ffn_embed_dim', args.encoder_ffn_embed_dim)
-    args.decoder_layers = getattr(args, 'decoder_layers', 6)
-    args.decoder_attention_heads = getattr(args, 'decoder_attention_heads', 8)
-    args.decoder_normalize_before = getattr(args, 'decoder_normalize_before', True)
-    args.decoder_learned_pos = getattr(args, 'decoder_learned_pos', False)
     args.attention_dropout = getattr(args, 'attention_dropout', 0.1)
     args.relu_dropout = getattr(args, 'relu_dropout', 0.1)
     args.dropout = getattr(args, 'dropout', 0.1)
-    args.adaptive_softmax_cutoff = getattr(args, 'adaptive_softmax_cutoff', None)
-    args.adaptive_softmax_dropout = getattr(args, 'adaptive_softmax_dropout', 0)
-    args.share_decoder_input_output_embed = getattr(args, 'share_decoder_input_output_embed', False)
-    args.share_all_embeddings = getattr(args, 'share_all_embeddings', False)
-    args.no_token_positional_embeddings = getattr(args, 'no_token_positional_embeddings', False)
-    args.adaptive_input = getattr(args, 'adaptive_input', False)
-
-    args.decoder_output_dim = getattr(args, 'decoder_output_dim', args.decoder_embed_dim)
-    args.decoder_input_dim = getattr(args, 'decoder_input_dim', args.decoder_embed_dim)
     #
     args.word_split=getattr(args, "word_split", "Source-RetrieveSource-RetrieveTarget")
     args.use_predictlayer = getattr(args, 'use_predictlayer', False)
-    args.predict_loss = getattr(args, 'predict_loss', False)
     args.use_splitlayer = getattr(args, 'use_splitlayer', False)
     args.use_copylayer = getattr(args, 'use_copylayer', False)
     args.gate_method = getattr(args, 'gate_method', 'simple-weight')
     args.reset_position = getattr(args, 'reset_position', True)
     args.retrieve_number = getattr(args, 'retrieve_number', 2)
     args.noise = getattr(args, "noise", None)
-
-
-@register_model_architecture('transformer', 'iwslt17_small_transformer')
-def JRC_Aquis_transformer(args):
-    args.encoder_embed_dim = getattr(args, 'encoder_embed_dim', 512)
-    args.encoder_ffn_embed_dim = getattr(args, 'encoder_ffn_embed_dim', 1024)
-    args.encoder_attention_heads = getattr(args, 'encoder_attention_heads', 4)
-    args.encoder_layers = getattr(args, 'encoder_layers', 6)
-    args.decoder_embed_dim = getattr(args, 'decoder_embed_dim', 512)
-    args.decoder_ffn_embed_dim = getattr(args, 'decoder_ffn_embed_dim', 1024)
-    args.decoder_attention_heads = getattr(args, 'decoder_attention_heads', 4)
-    args.decoder_layers = getattr(args, 'decoder_layers', 6)
-    args.dropout = getattr(args, 'dropout', 0.3)
-    #
-    args.word_split= getattr(args, 'word_split', 'Source-Retrive')
-    args.use_predictlayer = getattr(args, 'use_predictlayer', False)
-    args.predict_loss = getattr(args, 'predict_loss', False)
-    args.use_splitlayer = getattr(args, 'use_splitlayer', False)
-    args.use_copylayer = getattr(args, 'use_copylayer', False)
-    args.gate_method = getattr(args, 'gate_method', 'normal')
-    args.reset_position = getattr(args, 'reset_position', False)
-    args.retrive_number = getattr(args, 'retrive_number', 2)
-    args.noise = getattr(args, "noise", None)
-    args.training_ratio = getattr(args, "training_ratio", 0.5)
-    args.scale = getattr(args, "scale", 1.0)
-    args.vote = getattr(args, "vote", 0)
-    args.save_threshold = getattr(args, "save_threshold", -2)
+    args.n_gram = getattr(args, "n_gram", 0)
     base_architecture(args)
 
-
-
-
-
-@register_model_architecture('transformer', 'retrive_transformer')
-def retrive_transformer(args):
-    args.encoder_embed_path = getattr(args, 'encoder_embed_path', None)
-    args.encoder_embed_dim = getattr(args, 'encoder_embed_dim', 512)
-    args.encoder_ffn_embed_dim = getattr(args, 'encoder_ffn_embed_dim', 2048)
-    args.encoder_layers = getattr(args, 'encoder_layers', 6)
-    args.encoder_attention_heads = getattr(args, 'encoder_attention_heads', 8)
-    args.encoder_normalize_before = getattr(args, 'encoder_normalize_before', True)
-    args.encoder_learned_pos = getattr(args, 'encoder_learned_pos', False)
-    args.decoder_embed_path = getattr(args, 'decoder_embed_path', None)
-    args.decoder_embed_dim = getattr(args, 'decoder_embed_dim', args.encoder_embed_dim)
-    args.decoder_ffn_embed_dim = getattr(args, 'decoder_ffn_embed_dim', args.encoder_ffn_embed_dim)
-    args.decoder_layers = getattr(args, 'decoder_layers', 6)
-    args.decoder_attention_heads = getattr(args, 'decoder_attention_heads', 8)
-    args.decoder_normalize_before = getattr(args, 'decoder_normalize_before', True)
-    args.decoder_learned_pos = getattr(args, 'decoder_learned_pos', False)
-    args.attention_dropout = getattr(args, 'attention_dropout', 0.1)
-    args.relu_dropout = getattr(args, 'relu_dropout', 0.1)
-    args.dropout = getattr(args, 'dropout', 0.1)
-    args.adaptive_softmax_cutoff = getattr(args, 'adaptive_softmax_cutoff', None)
-    args.adaptive_softmax_dropout = getattr(args, 'adaptive_softmax_dropout', 0)
-    args.share_decoder_input_output_embed = getattr(args, 'share_decoder_input_output_embed', False)
-    args.share_all_embeddings = getattr(args, 'share_all_embeddings', False)
-    args.no_token_positional_embeddings = getattr(args, 'no_token_positional_embeddings', False)
-    args.adaptive_input = getattr(args, 'adaptive_input', False)
-
-    args.decoder_output_dim = getattr(args, 'decoder_output_dim', args.decoder_embed_dim)
-    args.decoder_input_dim = getattr(args, 'decoder_input_dim', args.decoder_embed_dim)
-
-    #
-    args.word_split= getattr(args, 'word_split', 'Source-RetrieveSource-RetrieveTarget')
-    #args.use_predictlayer = getattr(args, 'use_predictlayer', False)
-    args.predict_loss = getattr(args, 'predict_loss', False)
-    args.use_splitlayer = getattr(args, 'use_splitlayer', False)
-    args.use_copylayer = getattr(args, 'use_copylayer', False)
-    args.gate_method = getattr(args, 'gate_method', 'simple-weight')
-    args.reset_position = getattr(args, 'reset_position', False)
-    args.retrive_number = getattr(args, 'retrieve_number', 2)
-    args.noise = getattr(args, "noise", None)
-    args.training_ratio = getattr(args, "training_ratio", 0.5)
-    args.scale = getattr(args, "scale", 1.0)
-    args.vote = getattr(args, "vote", 0)
-    base_architecture(args)
 
 
 @register_model_architecture('transformer', 'transformer_wmt_en_de')

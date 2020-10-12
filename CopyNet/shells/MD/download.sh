@@ -1,0 +1,1 @@
+bash philly-fs.bash -cp -r //philly/rr1/resrchvc/t-jianya/RetrieveNMT/data/MD/retrieve-en2de/concat/model/en2de-CSTM1/checkpoint_best.pt  /home/v-jiaya/RetrieveNMT/data/MD/retrieve-en2de/concat/model/en2de-CSTM1/

@@ -134,6 +134,7 @@ def get_parser(desc, default_task='translation'):
 
     parser = argparse.ArgumentParser()
     # fmt: off
+    parser.add_argument('--debug', action='store_true', help='debug mode')
     parser.add_argument('--no-progress-bar', action='store_true', help='disable progress bar')
     parser.add_argument('--log-interval', type=int, default=1000, metavar='N',
                         help='log progress every N batches (when progress bar is disabled)')
