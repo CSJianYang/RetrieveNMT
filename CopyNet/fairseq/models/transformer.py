@@ -463,9 +463,9 @@ class TransformerDecoder(FairseqIncrementalDecoder):
                 x = F.linear(x, self.embed_out)
         # Copy mechanism
         # attn: bsz x tgt_len x src_len
-        copy_scores = torch.zeros_like(x)
+        copy_scores = torch.zeros_like(x).fill_(0)
         copy_tokens = encoder_out["TM_tokens"].unsqueeze(1).expand_as(attn)
-        copy_scores = copy_scores.scatter(-1, copy_tokens, attn.detach())
+        copy_scores = copy_scores.scatter_add(-1, copy_tokens, attn)
         return x, {'attn': attn, 'inner_states': inner_states, 'copy_scores':copy_scores, 'p_copy': p_copy}
 
 

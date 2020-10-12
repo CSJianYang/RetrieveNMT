@@ -128,9 +128,7 @@ def main(args, init_distributed=False):
     print("Load the latest checkpoint if one is available...")
     if not load_checkpoint(args, trainer, epoch_itr):
         trainer.dummy_train_step([dummy_batch])
-    if args.reset_target_embedding:
-        trainer.init_meters(args)
-        print("reset trainer.meters")
+
     # Train until the learning rate gets too small
     max_epoch = args.max_epoch or math.inf
     max_update = args.max_update or math.inf

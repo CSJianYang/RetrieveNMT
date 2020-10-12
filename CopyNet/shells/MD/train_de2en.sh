@@ -3,7 +3,7 @@ ls /mnt/default/
 nvidia-smi
 python3 -c 'import platform; import torch; print("torch version:{}".format(torch.__version__)); print("python version:{}".format(platform.python_version()))'
 TEXT=/mnt/default/RetrieveNMT/data/MD/retrieve-de2en-top2/concat/data-bin/
-MODEL=/hdfs/resrchvc/t-jianya/RetrieveNMT/data/MD/retrieve-de2en/concat/model/de2en-CopyNet1
+MODEL=/hdfs/resrchvc/t-jianya/RetrieveNMT/data/MD/retrieve-de2en-top2/concat/model/de2en-CopyNet1
 python3 train.py $TEXT \
     --source-lang de --target-lang en \
     --optimizer adam --adam-betas '(0.9, 0.98)' --lr-scheduler my_inverse_sqrt --warmup-updates 4000 \
