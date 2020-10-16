@@ -267,15 +267,12 @@ class TransformerEncoder(FairseqEncoder):
         if encoder_out['TM'] is not None:
             encoder_out['TM'] = \
                 encoder_out['TM'].index_select(1, new_order)
+        if encoder_out['TM_tokens'] is not None:
+            encoder_out['TM_tokens'] = \
+                encoder_out['TM_tokens'].index_select(0, new_order)
         if encoder_out['TM_padding'] is not None:
             encoder_out['TM_padding'] = \
                 encoder_out['TM_padding'].index_select(0, new_order)
-        if encoder_out['p_copy'] is not None:
-            encoder_out['p_copy'] = \
-                encoder_out['p_copy'].index_select(0, new_order)
-        if encoder_out['copy_scores'] is not None:
-            encoder_out['copy_scores'] = \
-                encoder_out['copy_scores'].index_select(0, new_order)
         return encoder_out
 
     def max_positions(self):
@@ -427,12 +424,12 @@ class TransformerDecoder(FairseqIncrementalDecoder):
 
         # B x T x C -> T x B x C
         x = x.transpose(0, 1)
-        attn = None
-
+        retrieve_attn = None
+        source_attn = None
         inner_states = [x]
         # decoder layers
         for layer in self.layers:
-            x, attn, p_copy = layer(
+            x, source_attn, retrieve_attn, p_copy = layer(
                 x,
                 encoder_out['encoder_out'] if encoder_out is not None else None,
                 encoder_out['encoder_padding_mask'] if encoder_out is not None else None,
@@ -464,9 +461,9 @@ class TransformerDecoder(FairseqIncrementalDecoder):
         # Copy mechanism
         # attn: bsz x tgt_len x src_len
         copy_scores = torch.zeros_like(x).fill_(0)
-        copy_tokens = encoder_out["TM_tokens"].unsqueeze(1).expand_as(attn)
-        copy_scores = copy_scores.scatter_add(-1, copy_tokens, attn)
-        return x, {'attn': attn, 'inner_states': inner_states, 'copy_scores':copy_scores, 'p_copy': p_copy}
+        copy_tokens = encoder_out["TM_tokens"].unsqueeze(1).expand_as(retrieve_attn)
+        copy_scores = copy_scores.scatter_add(-1, copy_tokens, retrieve_attn)
+        return x, {'attn': source_attn, 'inner_states': inner_states, 'copy_scores':copy_scores, 'p_copy': p_copy}
 
 
 
@@ -677,7 +674,9 @@ class TransformerDecoderLayer(nn.Module):
         x = residual + x
         x = self.maybe_layer_norm(self.self_attn_layer_norm, x, after=True)
 
-        attn = None
+        source_attn = None
+        retrieve_attn = None
+        p_copy = None
         if self.encoder_attn is not None:
             residual = x
             x = self.maybe_layer_norm(self.encoder_attn_layer_norm, x, before=True)
@@ -687,7 +686,7 @@ class TransformerDecoderLayer(nn.Module):
                 prev_key, prev_value = prev_attn_state
                 saved_state = {"prev_key": prev_key, "prev_value": prev_value}
                 self.encoder_attn._set_input_buffer(incremental_state, saved_state)
-            x, attn = self.encoder_attn(
+            x, source_attn = self.encoder_attn(
                 query=x,
                 key=encoder_out,
                 value=encoder_out,
@@ -696,11 +695,10 @@ class TransformerDecoderLayer(nn.Module):
                 static_kv=True,
                 need_weights=(not self.training and self.need_attn),
             )
-            p_copy = None
             if self.target_encoder_attn is not None:
                 assert TM.size(0) > 1 and TM.size(1) == x.size(1) and TM.size(2) == x.size(2), "TM: {}, x: {}".format(TM.size(), x.size())
                 assert TM.size(0) ==TM_padding.size(1) and TM.size(1) == TM_padding.size(0), "TM: {}, TM_padding: {}".format(TM.size(), TM_padding.size())
-                target_x, attn = self.target_encoder_attn(
+                target_x, retrieve_attn = self.target_encoder_attn(
                     query=x,
                     key=TM,
                     value=TM,
@@ -726,8 +724,8 @@ class TransformerDecoderLayer(nn.Module):
         if self.onnx_trace:
             saved_state = self.self_attn._get_input_buffer(incremental_state)
             self_attn_state = saved_state["prev_key"], saved_state["prev_value"]
-            return x, attn, self_attn_state
-        return x, attn, p_copy
+            return x, source_attn, self_attn_state
+        return x, source_attn, retrieve_attn, p_copy
 
 
 

@@ -4,7 +4,7 @@ import torch
 from fairseq import utils
 
 from . import data_utils, FairseqDataset
-
+import itertools
 
 def word_shuffle(x, l, args):
     """
@@ -483,6 +483,8 @@ def Dynamic_Source_RetrieveSource_RetrieveTarget_Collate(
 
             total_retrieve_number = len(sep_positions)
             p_prob = calculate_similarity_scores(source_words, retrieve_source_sentences[i])
+            np.random.choice(p_prob)
+
 
         # re-construct source input
         l2 = l.new(source_lengths)
@@ -661,7 +663,6 @@ def Source_RetrieveSource_RetrieveTarget_Collate(
     if samples[0].get('target', None) is not None:
         target = merge('target', left_pad=left_pad_target)
         ntokens = sum(len(s['target']) for s in samples)
-
         if input_feeding:
             prev_output_tokens = merge(
                 'target',
@@ -670,6 +671,27 @@ def Source_RetrieveSource_RetrieveTarget_Collate(
             )
     else:
         ntokens = sum(len(s['source']) for s in samples)
+
+    predict_ground_truth = None
+    if args.predict_loss:
+        retrieve_tokens_list = list(itertools.chain.from_iterable(zip(RetrieveSource_tokens, RetrieveTarget_tokens)))
+        retrieve_tokens = torch.cat(retrieve_tokens_list, dim=1)
+        predict_ground_truth = torch.zeros_like(retrieve_tokens)
+        for i in range(predict_ground_truth.size(0)):
+            for j in range(predict_ground_truth.size(1)):
+                if retrieve_tokens[i][j] in [args.APPEND_ID, args.SRC_ID, args.TGT_ID, args.SEP_ID]:
+                    predict_ground_truth[i, j] = 1
+                    continue
+                elif retrieve_tokens[i][j] in samples[i]['source'].tolist():
+                    left_range = max(0, j - args.n_gram)
+                    right_range = min(predict_ground_truth.size(1), j + args.n_gram + 1)
+                    predict_ground_truth[i, left_range:right_range] = 1
+                    continue
+                elif retrieve_tokens[i][j] in samples[i]['target'].tolist():
+                    left_range = max(0, j - args.n_gram)
+                    right_range = min(predict_ground_truth.size(1), j + args.n_gram + 1)
+                    predict_ground_truth[i, left_range:right_range] = 1
+                    continue
 
     batch = {
         'id': id,
@@ -680,6 +702,7 @@ def Source_RetrieveSource_RetrieveTarget_Collate(
             'src_lengths': [src_lengths, RetrieveSource_lengths, RetrieveTarget_lengths],
         },
         'target': target,
+        'predict_ground_truth': predict_ground_truth
     }
     if prev_output_tokens is not None:
         batch['net_input']['prev_output_tokens'] = prev_output_tokens
@@ -744,8 +767,6 @@ class LanguagePairDataset(FairseqDataset):
             assert src_dict.unk() == tgt_dict.unk()
         self.src = src
         self.tgt = tgt
-        self.src_mask=None
-        self.tgt_mask=None
         self.src_sizes = np.array(src_sizes)
         self.tgt_sizes = np.array(tgt_sizes) if tgt_sizes is not None else None
         self.src_dict = src_dict
@@ -832,8 +853,8 @@ class LanguagePairDataset(FairseqDataset):
     def num_tokens(self, index):
         """Return the number of tokens in a sample. This value is used to
         enforce ``--max-tokens`` during batching."""
-        return self.tgt_sizes[index] if self.tgt_sizes is not None else self.src_sizes[index]
-        #return max(self.src_sizes[index], self.tgt_sizes[index] if self.tgt_sizes is not None else 0)
+        #return self.tgt_sizes[index] if self.tgt_sizes is not None else self.src_sizes[index]
+        return max(self.src_sizes[index], self.tgt_sizes[index] if self.tgt_sizes is not None else 0)
 
     def size(self, index):
         """Return an example's size as a float or tuple. This value is used when
@@ -869,7 +890,4 @@ class LanguagePairDataset(FairseqDataset):
         self.src.prefetch(indices)
         if self.tgt is not None:
             self.tgt.prefetch(indices)
-        if self.src_mask is not None:
-            self.src_mask.prefetch(indices)
-        if self.tgt_mask is not None:
-            self.tgt_mask.prefetch(indices)
+

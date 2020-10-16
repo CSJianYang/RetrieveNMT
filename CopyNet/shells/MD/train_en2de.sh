@@ -11,5 +11,5 @@ python3 train.py $TEXT \
     --save-interval-updates 4000 --save-interval 100 --keep-interval-updates 5 --max-tokens 10000 \
     --arch my_transformer --save-dir $MODEL \
     --criterion label_smoothed_cross_entropy --label-smoothing 0.1 \
-    --lr 0.1 --min-lr 1e-16 --fp16 \
+    --lr 0.1 --min-lr 1e-16 \
     --update-freq 2 --ddp-backend=no_c10d --share-all-embeddings --max-source-positions 10000 | tee -a $MODEL/log.txt

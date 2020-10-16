@@ -23,16 +23,34 @@ code:
 
 data:
   data_upload: False
-  local_dir: /home/v-jiaya/RetriveNMT/data/document/NC-2016-sentence/data-bin/
-  remote_dir: RetriveNMT/data/document/NC-2016-sentence/data-bin/
+  local_dir: /home/v-jiaya/RetrieveNMT/data/JRC-Acquis/RetriveNMT/en-es/es2en/top2/data-bin/
+  remote_dir: RetrieveNMT/data/JRC-Acquis/RetriveNMT/en-es/es2en/top2/data-bin/
 #  storage_id: input
-# data:
-#   data upload is not required for this example
+
 
 # list of jobs to run, we run 2 jobs in this example
 jobs:
-- name: train_NC-2016_en2de_sentence_3
+#- name: train_JRC-Acquis_en2de_CopyNet
+#  sku: G4
+#  command:
+#    - bash ./shells/JRC-Acquis/train_JRC-Acquis_en2de.sh
+#- name: train_JRC-Acquis_de2en_CopyNet
+#  sku: G4
+#  command:
+#    - bash ./shells/JRC-Acquis/train_JRC-Acquis_de2en.sh
+#- name: train_JRC-Acquis_en2fr_CopyNet
+#  sku: G4
+#  command:
+#    - bash ./shells/JRC-Acquis/train_JRC-Acquis_en2fr.sh
+- name: train_JRC-Acquis_fr2en_CopyNet
   sku: G4
   command:
-    - bash ./train-wu2-scripts/train_NC-2016_en2de_sentence_3.sh
-
+    - bash ./shells/JRC-Acquis/train_JRC-Acquis_fr2en.sh
+#- name: train_JRC-Acquis_en2es_CopyNet
+#  sku: G4
+#  command:
+#    - bash ./shells/JRC-Acquis/train_JRC-Acquis_en2es.sh
+#- name: train_JRC-Acquis_es2en_CopyNet
+#  sku: G4
+#  command:
+#    - bash ./shells/JRC-Acquis/train_JRC-Acquis_es2en.sh

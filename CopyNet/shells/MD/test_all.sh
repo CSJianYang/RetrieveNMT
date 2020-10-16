@@ -1,4 +1,4 @@
-TEST_SHELL=/home/v-jiaya/RetrieveNMT/CSTM/shells/MD/test.sh
+TEST_SHELL=/home/v-jiaya/RetrieveNMT/CopyNet/shells/MD/test.sh
 echo "translate en->de"
 src=en
 tgt=de

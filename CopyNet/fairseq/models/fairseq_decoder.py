@@ -44,12 +44,15 @@ class FairseqDecoder(nn.Module):
             return out.exp_() if not log_probs else out
 
         logits = net_output[0]
-        p_copy = net_output[1]["p_copy"].float()
         copy_scores = net_output[1]["copy_scores"]
+
+        p_copy = net_output[1]["p_copy"].float()
         if log_probs:
             return torch.log((1 - p_copy) * utils.softmax(logits, dim=-1) + p_copy * copy_scores.float())
         else:
             return (1 - p_copy) * utils.softmax(logits, dim=-1) + p_copy * copy_scores.float()
+
+
 
     def max_positions(self):
         """Maximum input length supported by the decoder."""

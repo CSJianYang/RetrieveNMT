@@ -31,12 +31,12 @@ data:
 
 # list of jobs to run, we run 2 jobs in this example
 jobs:
-- name: MD_CopyNet_train_en2de
+- name: MD_select_train_en2de
   sku: G8
   command:
-    - bash ./shells/MD/train_en2de.sh
+    - bash ./shells/train-rr1-scripts/train_MD_en2de.sh
 #- name: MD_CopyNet_train_de2en
 #  sku: G8
 #  command:
-#    - bash ./shells/MD/train_de2en.sh
+#    - bash ./shells/train-rr1-scripts/train_MD_en2de.sh
 

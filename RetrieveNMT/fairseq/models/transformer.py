@@ -79,8 +79,12 @@ class TransformerModel(FairseqModel):
                             help='')
         parser.add_argument('--use-predictlayer', action='store_true',
                             help='use select layer in encoder')
+        parser.add_argument('--reset-position', action='store_true',
+                            help='reset positions')
+        parser.add_argument('--use-segment-emb', action='store_true',
+                            help='add segment embedding')
         parser.add_argument('--predict-loss', action='store_true',
-                            help='use predict loss')
+                            help='add segment embedding')
         parser.add_argument('--use-splitlayer', action='store_true',
                             help='use select layer in encoder')
         parser.add_argument('--use-copylayer', action='store_true',
@@ -219,11 +223,14 @@ class TransformerEncoder(FairseqEncoder):
         if self.normalize:
             self.layer_norm = LayerNorm(embed_dim)
 
-        #
-        self.use_predictlayer = args.use_predictlayer if hasattr(args, "use_predictlayer") else True
-        #self.loss_weight = Weight(2) if self.use_predictlayer else None
-        #self.use_splitlayer = args.use_splitlayer
+        # copy configurations from args
+        self.use_predictlayer = args.use_predictlayer
+        self.reset_position = args.reset_position
+        self.use_splitlayer = args.use_splitlayer
         self.use_copylayer = args.use_copylayer
+        self.use_segment_emb = args.use_segment_emb if hasattr(args, 'use_segment_emb') else False
+        #self.loss_weight = Weight(2) if self.use_predictlayer else None
+        # off
         self.predictlayers = nn.ModuleList([])
         if self.use_predictlayer:
             self.predictlayers.extend([
@@ -257,13 +264,39 @@ class TransformerEncoder(FairseqEncoder):
             assert len(retrieve_source_tokens_list) == len(retrieve_target_tokens_list)
             assert len(retrieve_source_lengths_list) == len(retrieve_target_lengths_list)
             assert src_tokens.size(0) == src_lengths.size(0)
+
+            #source_retrieve_list = [rs1, rs2] target_retrieve_list = [rt1, rt2] -> [rs1, rt1, rs2, rt2]
+            retrieve_tokens_list = list(itertools.chain.from_iterable(
+                zip(retrieve_source_tokens_list, retrieve_target_tokens_list)))
+            retrieve_lengths_list = list(itertools.chain.from_iterable(
+                zip(retrieve_source_tokens_list, retrieve_target_tokens_list)))
+            concat_tokens_list = [src_tokens] + retrieve_tokens_list
+            concat_x = self.embed_tokens(torch.cat(concat_tokens_list, dim=1))
+            concat_x = self.embed_scale * concat_x
+            if self.embed_positions is not None:
+                position_emb = torch.cat([self.embed_positions(tokens) for tokens in concat_tokens_list], dim=1)
+                concat_x += position_emb
+            if self.retrieve_embed_tokens is not None and self.use_segment_emb:
+                segment_id = torch.cat([src_tokens.new(tokens.size(0), tokens.size(1)).fill_(i) for i, tokens in enumerate(concat_tokens_list)], dim=1)
+                segment_emb = self.retrieve_embed_tokens(segment_id)
+                concat_x += segment_emb
+
+            retrieve_tokens = torch.cat(retrieve_tokens_list, dim=1)
+            concat_x = concat_x.transpose(0, 1)
+        else:
+            src_tokens, retrieve_source_tokens_list, retrieve_target_tokens_list = src_tokens
+            src_lengths, retrieve_source_lengths_list, retrieve_target_lengths_list = src_lengths
+            assert len(retrieve_source_tokens_list) == len(retrieve_target_tokens_list)
+            assert len(retrieve_source_lengths_list) == len(retrieve_target_lengths_list)
+            assert src_tokens.size(0) == src_lengths.size(0)
             x = self.embed_scale * self.embed_tokens(src_tokens)
 
             if self.embed_positions is not None:
                 x += self.embed_positions(src_tokens)
             if self.retrieve_embed_tokens is not None:
-                x += self.retrieve_embed_tokens(src_tokens.new(src_tokens.size(0), src_tokens.size(1)).fill_(0)) #index 0 represent source segment embeddings
-            #source_retrieve_list = [rs1, rs2] target_retrieve_list = [rt1, rt2] -> [rs1, rt1, rs2, rt2]
+                x += self.retrieve_embed_tokens(src_tokens.new(src_tokens.size(0), src_tokens.size(1)).fill_(
+                    0))  # index 0 represent source segment embeddings
+            # source_retrieve_list = [rs1, rs2] target_retrieve_list = [rt1, rt2] -> [rs1, rt1, rs2, rt2]
             retrieve_tokens_list = list(itertools.chain.from_iterable(
                 zip(retrieve_source_tokens_list, retrieve_target_tokens_list)))
             retrieve_lengths_list = list(itertools.chain.from_iterable(
@@ -273,41 +306,15 @@ class TransformerEncoder(FairseqEncoder):
                 retrive_emb = self.embed_scale * self.embed_tokens(retrieve_tokens)
                 if self.embed_positions is not None:
                     retrive_emb += self.embed_positions(retrieve_tokens)
-                if self.retrieve_embed_tokens is not None:
-                    retrive_emb += self.retrieve_embed_tokens(src_tokens.new(retrieve_tokens.size(0), retrieve_tokens.size(1)).fill_(i+1))
+                if self.retrieve_embed_tokens is not None and self.use_segment_emb:
+                    retrive_emb += self.retrieve_embed_tokens(
+                        src_tokens.new(retrieve_tokens.size(0), retrieve_tokens.size(1)).fill_(i + 1))
                 retrieve_x.append(retrive_emb)
             retrieve_x = torch.cat(retrieve_x, dim=1)
             retrieve_tokens = torch.cat(retrieve_tokens_list, dim=1)
-        else:
-            if len(src_tokens) == 1 and len(src_tokens) == 1:
-                (src_tokens, src_lengths), (Rsource_tokens, Rsource_lengths), (Rtarget_tokens, Rtarget_lengths) = self.source_Rsource_Rtarget_split(src_tokens, src_lengths)
-            elif len(src_tokens) == 3 and len(src_tokens) == 3:
-                src_tokens, Rsource_tokens, Rtarget_tokens = src_tokens
-                src_lengths, Rsource_lengths, Rtarget_lengths = src_lengths
+            concat_x = torch.cat([x, retrieve_x], dim=1).transpose(0, 1)
 
-            x = self.embed_scale * self.embed_tokens(src_tokens)
-            x += self.embed_positions(src_tokens)
-            if self.retreive_embed_tokens is not None:
-                x += self.retrieve_embed_tokens(
-                    src_tokens.new(src_tokens.size(0), src_tokens.size(1)).fill_(0))
 
-            Rsource_x = self.embed_scale * self.embed_tokens(Rsource_tokens)
-            Rsource_x += self.embed_positions(Rsource_tokens)
-            if self.retrive_embed_tokens is not None:
-                Rsource_x += self.retrive_embed_tokens(
-                    src_tokens.new(Rsource_tokens.size(0), Rsource_tokens.size(1)).fill_(1))
-
-            random_prob = random.random()
-            if self.training_ratio > 0 and (random_prob > self.args.training_ratio or not self.training):
-                Rtarget_x = self.embed_scale * self.embed_tokens(Rtarget_tokens)
-                Rtarget_x += self.embed_positions(Rtarget_tokens)
-                if self.retrive_embed_tokens is not None:
-                    Rtarget_x += self.retrive_embed_tokens(
-                        src_tokens.new(Rtarget_tokens.size(0), Rtarget_tokens.size(1)).fill_(2))
-            else:
-                Rtarget_tokens = None
-
-        concat_x = torch.cat([x, retrieve_x], dim=1).transpose(0, 1)
         concat_x = F.dropout(concat_x, p=self.dropout, training=self.training)
         concat_padding_mask = torch.cat([src_tokens, retrieve_tokens], dim=1).eq(self.padding_idx)
         # encoder layers
@@ -318,6 +325,8 @@ class TransformerEncoder(FairseqEncoder):
 
 
         predict_save_index = None
+        new_retrieve_tokens = None
+        predict_prob = None
         for i, predictlayer in enumerate(self.predictlayers):
             concat_x, predict_save_index, predict_prob, new_retrieve_tokens = predictlayer(concat_x, src_tokens, retrieve_tokens, encoder_states=encoder_states)
             concat_padding_mask = torch.cat([src_tokens, new_retrieve_tokens], dim=1).eq(self.padding_idx)
@@ -604,132 +613,6 @@ class TransformerDecoder(FairseqIncrementalDecoder):
         return state_dict
 
 
-class TransformerConditionedpredictlayer(nn.Module):
-    """Decoder layer block.
-
-    In the original paper each operation (multi-head attention, encoder
-    attention or FFN) is postprocessed with: `dropout -> add residual ->
-    layernorm`. In the tensor2tensor code they suggest that learning is more
-    robust when preprocessing each layer with layernorm and postprocessing with:
-    `dropout -> add residual`. We default to the approach in the paper, but the
-    tensor2tensor approach can be enabled by setting
-    *args.decoder_normalize_before* to ``True``.
-
-    Args:
-        args (argparse.Namespace): parsed command-line arguments
-        no_encoder_attn (bool, optional): whether to attend to encoder outputs
-            (default: False).
-    """
-
-    def __init__(self, args, no_encoder_attn=False):
-        super().__init__()
-        self.embed_dim = args.decoder_embed_dim
-        self.self_attn = MultiheadAttention(
-            self.embed_dim, args.encoder_attention_heads,
-            dropout=args.attention_dropout,
-        )
-        self.dropout = args.dropout
-        self.relu_dropout = args.relu_dropout
-        self.normalize_before = args.decoder_normalize_before
-
-        self.self_attn_layer_norm = LayerNorm(self.embed_dim)
-
-        if no_encoder_attn:
-            self.encoder_attn = None
-            self.encoder_attn_layer_norm = None
-        else:
-            self.encoder_attn = MultiheadAttention(
-                self.embed_dim, args.decoder_attention_heads,
-                dropout=args.attention_dropout,
-            )
-            self.encoder_attn_layer_norm = LayerNorm(self.embed_dim)
-
-        self.fc1 = Linear(self.embed_dim, args.decoder_ffn_embed_dim)
-        self.fc2 = Linear(args.decoder_ffn_embed_dim, self.embed_dim)
-        self.incorpor_weight = Linear(self.embed_dim, 1)
-
-        self.final_layer_norm = LayerNorm(self.embed_dim)
-        self.need_attn = True
-
-        self.onnx_trace = False
-
-    def prepare_for_onnx_export_(self):
-        self.onnx_trace = True
-
-    def forward(self, source_x, retrive_x, src_tokens, retrive_tokens, padding_idx):
-        """
-        Args:
-            x (Tensor): input to the layer of shape `(seq_len, batch, embed_dim)`
-            encoder_padding_mask (ByteTensor): binary ByteTensor of shape
-                `(batch, src_len)` where padding elements are indicated by ``1``.
-
-        Returns:
-            encoded output of shape `(batch, src_len, embed_dim)`
-        """
-        src_len = src_tokens.size(1)
-        retrive_len = retrive_x.size(1)
-
-
-        source_attn_padding_mask = src_tokens.eq(padding_idx)
-        retrive_attn_padding_mask = retrive_tokens.eq(padding_idx)
-
-        residual = retrive_x
-        retrive_x = self.maybe_layer_norm(self.self_attn_layer_norm, retrive_x, before=True)
-        retrive_x, _ = self.self_attn(
-            query=retrive_x,
-            key=retrive_x,
-            value=retrive_x,
-            key_padding_mask=retrive_attn_padding_mask,
-            incremental_state=None,
-            need_weights=False,
-            attn_mask=retrive_attn_padding_mask,
-        )
-        retrive_x = F.dropout(retrive_x, p=self.dropout, training=self.training)
-        retrive_x = residual + retrive_x
-        retrive_x = self.maybe_layer_norm(self.self_attn_layer_norm, retrive_x, after=True)
-
-        attn = None
-        residual = retrive_x
-        retrive_x = self.maybe_layer_norm(self.encoder_attn_layer_norm, x, before=True)
-        retrive_x, attn = self.encoder_attn(
-            query=retrive_x,
-            key=source_x,
-            value=source_x,
-            key_padding_mask=source_attn_padding_mask,
-            incremental_state=None,
-            static_kv=True,
-            need_weights=(not self.training and self.need_attn),
-        )
-        retrive_x = F.dropout(retrive_x, p=self.dropout, training=self.training)
-        retrive_x = residual + retrive_x
-        retrive_x= self.maybe_layer_norm(self.encoder_attn_layer_norm, retrive_x, after=True)
-
-        residual = retrive_x
-        retrive_x = self.maybe_layer_norm(self.final_layer_norm, retrive_x, before=True)
-        retrive_x = F.relu(self.fc1(retrive_x))
-        retrive_x = F.dropout(retrive_x, p=self.relu_dropout, training=self.training)
-        retrive_x = self.fc2(retrive_x)
-        retrive_x = F.dropout(retrive_x, p=self.dropout, training=self.training)
-        retrive_x = residual + retrive_x
-        retrive_x = self.maybe_layer_norm(self.final_layer_norm, retrive_x, after=True)
-        return retrive_x, attn
-
-
-
-
-
-    def maybe_layer_norm(self, layer_norm, x, before=False, after=False):
-        assert before ^ after
-        if after ^ self.normalize_before:
-            return layer_norm(x)
-        else:
-            return x
-
-    def make_generation_fast_(self, need_attn=False, **kwargs):
-        self.need_attn = need_attn
-
-
-
 class TransformerPredictLayer(nn.Module):
     """Encoder layer block.
 
@@ -776,7 +659,7 @@ class TransformerPredictLayer(nn.Module):
 
         #T x B x H ->T x B x H X L
         layer_weight = self.layer_weight.type_as(concat_x).unsqueeze(0).unsqueeze(1).unsqueeze(2)
-        concat_x = torch.stack(encoder_states, dim=-1) * torch.sigmoid(layer_weight)
+        concat_x = torch.stack(encoder_states, dim=-1) * torch.softmax(layer_weight, dim=-1)
         concat_x = concat_x.sum(-1)
 
         residual = concat_x
@@ -797,10 +680,10 @@ class TransformerPredictLayer(nn.Module):
         x = concat_x[:max_src_len,:,:]  # T1 x B x C
         retrieve_x = concat_x[max_src_len:,:,:] # T2 x B x C
 
-        predict_result = self.predict(retrieve_x)
         # 1 represents selected, 0 represents discarded
+        predict_result = self.predict(retrieve_x)
         predict_save_index = predict_result.max(dim=2)[1].byte().transpose(0, 1)
-        predict_save_index = predict_save_index.masked_fill(~retrieve_padding_mask, 0)  # B x T
+        #predict_save_index = predict_save_index.masked_fill(~retrieve_padding_mask, 0)  # B x T
         new_retrieve_tokens = retrieve_tokens.masked_fill(~predict_save_index, self.padding_idx)
 
         return concat_x, predict_save_index, predict_result.transpose(0, 1), new_retrieve_tokens # T x B x c -> B x T x C
@@ -1194,7 +1077,9 @@ def JRC_Aquis_transformer(args):
     args.use_splitlayer = getattr(args, 'use_splitlayer', False)
     args.use_copylayer = getattr(args, 'use_copylayer', False)
     args.gate_method = getattr(args, 'gate_method', 'simple-weight')
-    args.reset_position = getattr(args, 'reset_position', True)
+    args.reset_position = getattr(args, 'reset_position', False)
+    args.use_segment_emb = getattr(args, 'use_segment_emb', False)
+    args.predict_loss = getattr(args, 'predict_loss', False)
     args.retrieve_number = getattr(args, 'retrieve_number', 2)
     args.noise = getattr(args, "noise", None)
     args.n_gram = getattr(args, "n_gram", 0)

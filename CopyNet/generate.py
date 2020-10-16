@@ -114,9 +114,9 @@ def main(args):
 
                 # Remove padding
                 src_tokens, retrieve_source_tokens, retrieve_target_tokens = sample['net_input']['src_tokens']
-                retrieve_source_tokens = torch.cat(retrieve_source_tokens, dim=1)
+                #retrieve_source_tokens = torch.cat(retrieve_source_tokens, dim=1)
                 retrieve_target_tokens = torch.cat(retrieve_target_tokens, dim=1)
-                all_tokens = torch.cat([src_tokens, retrieve_source_tokens, retrieve_target_tokens], dim=1)
+                all_tokens = torch.cat([src_tokens, retrieve_target_tokens], dim=1)
                 src_tokens = utils.strip_pad(all_tokens[i, :], tgt_dict.pad())
                 target_tokens = None
                 if has_target:
@@ -184,7 +184,7 @@ def main(args):
         num_sentences, gen_timer.n, gen_timer.sum, num_sentences / gen_timer.sum, 1. / gen_timer.avg))
     if has_target:
         print('| Generate {} with beam={}: {}'.format(args.gen_subset, args.beam, scorer.result_string()))
-        with open("{}.CSTM.BLEU".format(args.output), "a", encoding="utf-8") as w:
+        with open("{}.CopyNet.BLEU".format(args.output), "a", encoding="utf-8") as w:
             w.write('{}->{}: Generate {} with beam={} and lenpen={}: {}\n'.format(args.source_lang, args.target_lang, args.gen_subset, args.beam, args.lenpen, scorer.result_string()))
     trans_results.sort(key=lambda key: key[0])
     print(trans_results.__len__())

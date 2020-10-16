@@ -1,14 +1,15 @@
 export CUDA_VISIBLE_DEVICES=3
 PYTHON=/home/v-jiaya/anaconda3/bin/python
-GENERATE=/home/v-jiaya/RetrieveNMT/CSTM/generate.py
-TEXT=/home/v-jiaya/RetrieveNMT/data/MD/retrieve-en2de/concat/test-data-bin/
+GENERATE=/home/v-jiaya/RetrieveNMT/CopyNet/generate.py
 src=$1
 tgt=$2
 testset=$3
 if [ "$src" == "en" ]; then
-    MODEL_DIR=/home/v-jiaya/RetrieveNMT/data/MD/retrieve-en2de/concat/model/en2de-CSTM1/
+    MODEL_DIR=/home/v-jiaya/RetrieveNMT/data/MD/retrieve-en2de-top2/concat/model/en2de-CopyNet1/
+    TEXT=/home/v-jiaya/RetrieveNMT/data/MD/retrieve-en2de-top2/concat/test-data-bin/
 elif [ "$src" == "de" ]; then
-    MODEL_DIR=/home/v-jiaya/RetrieveNMT/data/MD/retrieve-de2en/concat/model/en2de-CSTM1/
+    MODEL_DIR=/home/v-jiaya/RetrieveNMT/data/MD/retrieve-de2en-top2/concat/model/de2en-CopyNet1/
+    TEXT=/home/v-jiaya/RetrieveNMT/data/MD/retrieve-de2en-top2/concat/test-data-bin/
 else
     echo "Error Language !"
     exit
