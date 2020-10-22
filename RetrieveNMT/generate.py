@@ -113,10 +113,7 @@ def main(args):
         scorer = bleu.Scorer(tgt_dict.pad(), tgt_dict.eos(), tgt_dict.unk())
     num_sentences = 0
     has_target = True
-    multi_Rsource_lengths = []
-    multi_Rtarget_lengths = []
-    multi_Rsource_tokens = []
-    multi_Rtarget_tokens = []
+    select_retrieve_tokens = []
     with progress_bar.build_progress_bar(args, itr) as t:
         wps_meter = TimeMeter()
         trans_results = []
@@ -135,30 +132,10 @@ def main(args):
             gen_timer.stop(num_generated_tokens)
 
             for i, sample_id in enumerate(sample['id'].tolist()):
-                #######################################
-                single_Rsource_lengths = [sample_id]
-                single_Rtarget_lengths = [sample_id]
-                single_Rsource_tokens =  [sample_id]
-                single_Rtarget_tokens =  [sample_id]
-                for layer_id, (Rsource, Rtarget) in enumerate(zip(encoder_outs[0]['multi_selectlayer'][0], encoder_outs[0]['multi_selectlayer'][1])):
-                    Rsource_tokens = utils.strip_pad(Rsource['Rsource_tokens'][i, :], tgt_dict.pad()).int().cpu()
-                    Rsource_tokens = src_dict.string(Rsource_tokens, args.remove_bpe)
-                    single_Rsource_lengths.append(len(Rsource_tokens.split()))  # contain batchsize * seqlen tokens
-                    single_Rsource_tokens.append(Rsource_tokens)
-                    if Rtarget['Rtarget_tokens'] is not None:
-                        Rtarget_tokens = utils.strip_pad(Rtarget['Rtarget_tokens'][i, :], tgt_dict.pad()).int().cpu()
-                        Rtarget_tokens = tgt_dict.string(Rtarget_tokens, args.remove_bpe)
-                        single_Rtarget_lengths.append(len(Rtarget_tokens.split()))
-                        single_Rtarget_tokens.append(Rtarget_tokens)
-                multi_Rsource_lengths.append(single_Rsource_lengths)
-                multi_Rtarget_lengths.append(single_Rtarget_lengths)
-                multi_Rsource_tokens.append(single_Rsource_tokens)
-                multi_Rtarget_tokens.append(single_Rtarget_tokens)
-                #######################################
                 has_target = sample['target'] is not None
 
                 # Remove padding
-                src_tokens, retrieve_source_tokens, retrieve_target_tokens = src_tokens
+                src_tokens, retrieve_source_tokens, retrieve_target_tokens = sample['net_input']['src_tokens']
                 retrieve_tokens = list(itertools.chain.from_iterable(zip(retrieve_source_tokens, retrieve_target_tokens)))
                 retrieve_tokens = torch.cat(retrieve_tokens, dim=1)
                 all_tokens = torch.cat([src_tokens, retrieve_tokens], dim=1)
@@ -166,6 +143,9 @@ def main(args):
                 target_tokens = None
                 if has_target:
                     target_tokens = utils.strip_pad(sample['target'][i, :], tgt_dict.pad()).int().cpu()
+
+
+                #
 
                 # Either retrieve the original sentences or regenerate them from tokens.
                 if align_dict is not None:
@@ -222,6 +202,18 @@ def main(args):
                         else:
                             scorer.add(target_tokens, hypo_tokens)
 
+                    # add select tokens
+                    select_retrieve_tokens.append([sample_id,
+                                                   src_str,
+                                                   target_str,
+                                                   sample['predict_ground_truth'][i, :],
+                                                   retrieve_tokens[i, :],
+                                                   encoder_outs[0]['new_retrieve_tokens'][i, :],
+                                                   utils.strip_pad(retrieve_tokens[i, :],
+                                                                   src_dict.pad()).tolist(),
+                                                   utils.strip_pad(encoder_outs[0]['new_retrieve_tokens'][i, :],
+                                                                   src_dict.pad()).tolist()])
+
             wps_meter.update(num_generated_tokens)
             t.log({'wps': round(wps_meter.avg)})
             num_sentences += sample['nsentences']
@@ -232,32 +224,39 @@ def main(args):
         num_sentences, gen_timer.n, gen_timer.sum, num_sentences / gen_timer.sum, 1. / gen_timer.avg))
     if has_target:
         print('| Generate {} with beam={}: {}'.format(args.gen_subset, args.beam, scorer.result_string()))
-    with open(args.output + ".bleu", "a", encoding="utf-8") as w_bleu:
-        w_bleu.write(args + "\n")
-        w_bleu.write('| Generate {} with beam={}: {}'.format(args.gen_subset, args.beam, scorer.result_string()))
+
     trans_results.sort(key=lambda key: key[0])
-    #print(trans_results.__len__())
     print("saving translation result to {}...".format(args.output))
     with open(args.output, "w", encoding="utf-8") as w:
         for item in trans_results:
             w.write("{}\n".format(item[1].replace("<<unk>>", "")))
-    multi_Rsource_lengths.sort(key=lambda key: key[0])
-    multi_Rtarget_lengths.sort(key=lambda key: key[0])
-    multi_Rsource_tokens.sort(key=lambda key: key[0])
-    multi_Rtarget_tokens.sort(key=lambda key: key[0])
-    total_source_lengths=[0]*(len(multi_Rsource_lengths[-1])-1)
-    total_target_lengths=[0]*(len(multi_Rtarget_lengths[-1])-1)
-    with open(args.output+".select.{}".format(args.max_sentences), "w", encoding="utf-8") as w_select:
-        for i,(Rsource_tokens,Rtarget_tokens,Rsource_lengths,Rtarget_lenghts) in enumerate(zip(multi_Rsource_tokens,multi_Rtarget_tokens,multi_Rsource_lengths,multi_Rtarget_lengths)):
-            w_select.write(" ".join([str(item) for item in Rsource_lengths])+"\n")
-            total_source_lengths = [total_source_lengths[i-1] + Rsource_lengths[i] for i in range(1, len(Rsource_lengths))]
-            total_target_lengths = [total_target_lengths[i-1] + Rtarget_lenghts[i] for i in range(1, len(Rtarget_lenghts))]
-    total_source_lengths_ratio = [str(round(float(total_source_lengths[i])/total_source_lengths[0],8)) for i in range(0,len(total_source_lengths))]
-    total_target_lengths_ratio = [str(round(float(total_target_lengths[i])/total_target_lengths[0],8)) for i in range(0,len(total_target_lengths))]
-    print("Rsource selective tokens: {}".format(total_source_lengths))
-    print("Rtarget selective tokens: {}".format(total_target_lengths))
-    print("Rsource selective ratio: {}".format(total_source_lengths_ratio))
-    print("Rtarget selective ratio: {}".format(total_target_lengths_ratio))
+    select_retrieve_tokens.sort(key=lambda key: key[0])
+    orig_retrieve_tokens_length = 0
+    select_retrieve_tokens_length = 0
+    correct_tokens = 0
+    with open(args.output+".select", "w", encoding="utf-8") as w_select:
+        for item in select_retrieve_tokens:
+            sample_id, src_str, target_str, sample_predict_ground_truth, sample_orig_id, sample_select_retrieve_id, sample_orig_retrieve_tokens, sample_select_retrieve_tokens = item
+            retrieve_str = src_dict.string(sample_orig_retrieve_tokens, args.remove_bpe)
+            select_str = src_dict.string(sample_select_retrieve_tokens, args.remove_bpe)
+            w_select.write("{}\n{}\n{}\n{}\n\n".format(src_str, target_str, retrieve_str, select_str))
+            orig_retrieve_tokens_length += len(sample_orig_retrieve_tokens)
+            select_retrieve_tokens_length += len(sample_select_retrieve_tokens)
+            #calculate accuracy
+            correct_tokens += ((sample_select_retrieve_id != _model_args.PAD_ID).long() == sample_predict_ground_truth).masked_fill((sample_orig_id==_model_args.PAD_ID).byte(), 0).sum()
+
+    ratio=select_retrieve_tokens_length/float(orig_retrieve_tokens_length)
+    accuracy=correct_tokens.tolist()/float(orig_retrieve_tokens_length)
+    print("Selective Tokens: {}".format(ratio))
+    print("Correct Tokens: {}".format(accuracy))
+
+    with open("{}.RetrieveNMT.BLEU".format(args.output), "a", encoding="utf-8") as w:
+        w.write('{}->{}: Generate {} with beam={} and lenpen={}: {};\tSelection Ratio: {};\tAccuracy\n'.format(args.source_lang, args.target_lang,
+                                                                              args.gen_subset, args.beam,
+                                                                              args.lenpen, scorer.result_string(),
+                                                                              ratio,
+                                                                              accuracy))
+
 
 
 

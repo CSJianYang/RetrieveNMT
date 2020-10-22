@@ -48,9 +48,9 @@ class LabelSmoothedCrossEntropyCriterion(FairseqCriterion):
             generate_loss, generate_nll_loss = self.compute_loss(model, net_output, sample, reduce=True)
             predict_loss, predict_nll_loss = self.compute_predict_loss(model, net_output, sample, reduce=True)
             weight1 = 1.0
-            weight2 = 0.5
-            #weight2 = torch.sigmoid(model.encoder.loss_weight[1]) + 0.01
-            loss = weight1 * generate_loss + weight2 * predict_loss
+            #weight2 = 0.5
+            weight2 = torch.sigmoid(model.encoder.loss_weight[1]).type_as(net_output[0]) + 0.01
+            loss = weight1 * generate_loss.type_as(weight2) + weight2 * predict_loss.type_as(weight2)
             nll_loss = weight1 * generate_nll_loss + weight2 * predict_nll_loss
         else:
             generate_loss, generate_nll_loss = self.compute_loss(model, net_output, sample, reduce=True)
@@ -75,7 +75,7 @@ class LabelSmoothedCrossEntropyCriterion(FairseqCriterion):
             'sample_size': sample_size,
             'loss_weight': [utils.item(weight1), utils.item(weight2)]
         }
-        return loss, sample_size, logging_output
+        return loss.float(), sample_size, logging_output
 
     def compute_predict_loss(self, model, net_output, sample, reduce=True):
         predict_groudtruth = sample['predict_ground_truth']

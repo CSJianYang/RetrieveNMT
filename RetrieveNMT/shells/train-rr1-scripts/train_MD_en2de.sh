@@ -3,7 +3,7 @@ ls /mnt/default/
 nvidia-smi
 python3 -c 'import platform; import torch; print("torch version:{}".format(torch.__version__)); print("python version:{}".format(platform.python_version()))'
 TEXT=/mnt/default/RetrieveNMT/data/MD/retrieve-en2de-top2/concat/data-bin/
-MODEL=/hdfs/resrchvc/t-jianya/RetrieveNMT/data/MD/retrieve-en2de-top2/concat/model/en2de-select
+MODEL=/hdfs/resrchvc/t-jianya/RetrieveNMT/data/MD/retrieve-en2de-top2/concat/model/en2de-ngram0
 mkdir -p $MODEL
 python3 train.py $TEXT \
     --source-lang en --target-lang de \
@@ -13,4 +13,5 @@ python3 train.py $TEXT \
     --arch retrieve_transformer --save-dir $MODEL \
     --criterion label_smoothed_cross_entropy --label-smoothing 0.1 \
     --lr 0.1 --min-lr 1e-16 --fp16 --use-predictlayer \
-    --update-freq 2 --ddp-backend=no_c10d --share-all-embeddings --max-source-positions 10000 | tee -a $MODEL/log.txt
+    --update-freq 2 --ddp-backend=no_c10d --share-all-embeddings --max-source-positions 10000 \
+    --use-segment-emb --use-predictlayer --predict-loss --n-gram 0 | tee -a $MODEL/log.txt

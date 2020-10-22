@@ -405,156 +405,18 @@ def Source_RetrieveTarget_Collate(
         batch['net_input']['prev_output_tokens'] = prev_output_tokens
     return batch
 
+def calculate_similarity_scores(source_words, retrieve_source_sentences):
+    source_words = set(source_words.tolist())
+    p_prob = []
+    for retrieve_sentence in retrieve_source_sentences:
+        retrieve_sentence = set(retrieve_sentence.tolist())
+        intersection = source_words & retrieve_sentence
+        occurences = len(intersection)
+        p_prob.append(occurences + 1)
+    total = sum(p_prob)
+    p_prob = [p/float(total) for p in p_prob]
+    return p_prob
 
-def Dynamic_Source_RetrieveSource_RetrieveTarget_Collate(
-    samples, pad_idx, eos_idx, left_pad_source=True, left_pad_target=False,
-    input_feeding=True, args=None, training=True
-):
-    if len(samples) == 0:
-        return {}
-
-    def merge(key, left_pad, move_eos_to_beginning=False):
-        return data_utils.collate_tokens(
-            [s[key] for s in samples],
-            pad_idx, eos_idx, left_pad, move_eos_to_beginning,
-        )
-
-
-    def calculate_similarity_scores(source_words, retrieve_source_sentences):
-        source_words = set(source_words.tolist())
-        p_prob = []
-        for retrieve_sentence in retrieve_source_sentences:
-            retrieve_sentence = set(retrieve_sentence.tolist())
-            intersection = source_words & retrieve_sentence
-            occurences = len(intersection)
-            p_prob.append(occurences)
-        p_prob = torch.softmax(p_prob).tolist()
-        return p_prob
-
-
-    def Dynamic_Source_RetrieveSource_RetrieveTarget_Split(x, l, args=None):
-        """
-        split source words and retrive words.
-        x: Batch * TimeStep
-        sentence format(left pad) [pad, pad, pad, [APPEND], [SRC], x1, x2, x3, [TGT], y1, y2, y3, [SEP], [SRC], x1, x2, x3, [TGT], y1, y2, y3, [SEP], [eos]]
-        """
-        # choose word to drop
-        source_sentences = []
-        source_lengths = []
-        retrieve_source_sentences = [[]for _ in range(args.retrieve_number)]
-        retrieve_source_lengths = [[]for _ in range(args.retrieve_number)]
-        retrieve_target_sentences = [[]for _ in range(args.retrieve_number)]
-        retrieve_target_lengths = [[]for _ in range(args.retrieve_number)]
-        for i in range(l.size(0)):
-            words = x[i, -l[i]:]
-            append_position = (words == args.APPEND_ID).nonzero()
-            if len(append_position) == 1:
-                append_position = append_position[0][0]
-            else:
-                append_position = words.size(0)
-
-            if append_position > 0 and append_position < words.size(0):
-                source_words, retrieve_words = words[:append_position], words[append_position:]
-            elif append_position == 0:
-                source_words = x.new([args.UNK_ID])
-                retrieve_words = words
-            else:
-                source_words = words
-                retrieve_words = x.new([args.APPEND_ID])
-                # assert words.split(" "+str(args.APPEND_ID)+" ")  .__len__() == 2, "Retrive sequences must contain one [APPEND] tag! " + words + " len: " + str(words.split(" "+str(self.args.APPEND_ID)+" ").__len__()) + " sent len: {}".format(l[i]) + " APPEND_ID: {}".format(self.args.APPEND_ID)
-
-            source_sentences.append(source_words)
-            source_lengths.append(len(source_words))
-
-            sep_positions = (retrieve_words == args.SEP_ID).nonzero().tolist()
-            src_positions = (retrieve_words == args.SRC_ID).nonzero().tolist()
-            tgt_positions = (retrieve_words == args.TGT_ID).nonzero().tolist()
-            assert len(sep_positions) == len(src_positions) and len(sep_positions) == len(tgt_positions), "Please make sure [SEP] [SRC] [TGT] have the same number of occurrences"
-            retrieve_source_words_list = []
-            retrieve_target_words_list = []
-            for j in range(len(sep_positions)):
-                retrieve_source_words = retrieve_words[src_positions[j][0]: tgt_positions[j][0]]
-                retrieve_target_words = retrieve_words[tgt_positions[j][0]: sep_positions[j][0]]
-
-                retrieve_source_sentences[j].append(retrieve_source_words)
-                retrieve_source_lengths[j].append(len(retrieve_source_words))
-                retrieve_target_sentences[j].append(retrieve_target_words)
-                retrieve_target_lengths[j].append(len(retrieve_target_words))
-
-            total_retrieve_number = len(sep_positions)
-            p_prob = calculate_similarity_scores(source_words, retrieve_source_sentences[i])
-            np.random.choice(p_prob)
-
-
-        # re-construct source input
-        l2 = l.new(source_lengths)
-        x2 = x.new(l2.size(0), l2.max()).fill_(args.PAD_ID)
-        for i in range(l2.size(0)):
-            x2[i, -l2[i]:].copy_(source_sentences[i])
-
-        multi_retrieve_source_x = []
-        multi_retrieve_target_x = []
-
-        multi_retrieve_source_l = []
-        multi_retrieve_target_l = []
-        for i in range(len(sep_positions)):
-            # re-construct retrieve source input
-            retrieve_source_l = l.new(retrieve_source_lengths[i])
-            retrieve_source_x = x.new(retrieve_source_l.size(0), retrieve_source_l.max()).fill_(args.PAD_ID)
-            for j in range(retrieve_source_l.size(0)):
-                retrieve_source_x[j, -retrieve_source_l[j]:].copy_(retrieve_source_sentences[i][j])
-            multi_retrieve_source_x.append(retrieve_source_x)
-            multi_retrieve_source_l.append(retrieve_source_l)
-
-            # re-construct retrieve target input
-            retrieve_target_l = l.new(retrieve_target_lengths[i])
-            retrieve_target_x = x.new(retrieve_target_l.size(0), retrieve_target_l.max()).fill_(args.PAD_ID)
-            for j in range(retrieve_target_l.size(0)):
-                retrieve_target_x[j, -retrieve_target_l[j]:].copy_(retrieve_target_sentences[i][j])
-            multi_retrieve_target_x.append(retrieve_target_x)
-            multi_retrieve_target_l.append(retrieve_target_l)
-
-        return (x2, l2), (multi_retrieve_source_x, multi_retrieve_source_l), (multi_retrieve_target_x, multi_retrieve_target_l)
-
-    id = torch.LongTensor([s['id'] for s in samples])
-    src_tokens = merge('source', left_pad=left_pad_source)
-    src_lengths = torch.LongTensor([s['source'].numel() for s in samples])
-    (src_tokens, src_lengths), (RetrieveSource_tokens, RetrieveSource_lengths), (RetrieveTarget_tokens, RetrieveTarget_lengths) = Dynamic_Source_RetrieveSource_RetrieveTarget_Split(src_tokens, src_lengths, args=args)
-
-    if args.noise is not None and training:
-        assert len(args.noise.split(",")) == 3, "noise setting must be three probs"
-        args.shuffle_prob, args.drop_prob, args.unk_prob = [float(v) for v in args.noise.split(",")]
-        src_tokens, src_lengths = add_noise(src_tokens, src_lengths)
-
-
-    prev_output_tokens = None
-    target = None
-    if samples[0].get('target', None) is not None:
-        target = merge('target', left_pad=left_pad_target)
-        ntokens = sum(len(s['target']) for s in samples)
-
-        if input_feeding:
-            prev_output_tokens = merge(
-                'target',
-                left_pad=left_pad_target,
-                move_eos_to_beginning=True,
-            )
-    else:
-        ntokens = sum(len(s['source']) for s in samples)
-
-    batch = {
-        'id': id,
-        'nsentences': len(samples),
-        'ntokens': ntokens,
-        'net_input': {
-            'src_tokens': [src_tokens, RetrieveSource_tokens, RetrieveTarget_tokens],
-            'src_lengths': [src_lengths, RetrieveSource_lengths, RetrieveTarget_lengths],
-        },
-        'target': target,
-    }
-    if prev_output_tokens is not None:
-        batch['net_input']['prev_output_tokens'] = prev_output_tokens
-    return batch
 
 
 def Source_RetrieveSource_RetrieveTarget_Collate(
@@ -583,6 +445,7 @@ def Source_RetrieveSource_RetrieveTarget_Collate(
         retrieve_source_lengths = [[]for _ in range(args.retrieve_number)]
         retrieve_target_sentences = [[]for _ in range(args.retrieve_number)]
         retrieve_target_lengths = [[]for _ in range(args.retrieve_number)]
+        TM_setting = args.TM_setting if hasattr(args, "TM_setting") else "bi-text"
         for i in range(l.size(0)):
             words = x[i, -l[i]:]
             append_position = (words == args.APPEND_ID).nonzero()
@@ -608,14 +471,15 @@ def Source_RetrieveSource_RetrieveTarget_Collate(
             src_positions = (retrieve_words == args.SRC_ID).nonzero().tolist()
             tgt_positions = (retrieve_words == args.TGT_ID).nonzero().tolist()
             assert len(sep_positions) == len(src_positions) and len(sep_positions) == len(tgt_positions), "Please make sure [SEP] [SRC] [TGT] have the same number of occurrences"
-            for j in range(min(len(sep_positions), args.retrieve_number)):
-                retrieve_source_words = retrieve_words[src_positions[j][0]: tgt_positions[j][0]]
-                retrieve_target_words = retrieve_words[tgt_positions[j][0]: sep_positions[j][0]]
-
-                retrieve_source_sentences[j].append(retrieve_source_words)
-                retrieve_source_lengths[j].append(len(retrieve_source_words))
-                retrieve_target_sentences[j].append(retrieve_target_words)
-                retrieve_target_lengths[j].append(len(retrieve_target_words))
+            for j in range(args.retrieve_number):
+                if TM_setting == "bi-text" or TM_setting == "src-text":
+                    retrieve_source_words = retrieve_words[src_positions[j][0]: tgt_positions[j][0]]
+                    retrieve_source_sentences[j].append(retrieve_source_words)
+                    retrieve_source_lengths[j].append(len(retrieve_source_words))
+                if TM_setting == "bi-text" or TM_setting == "tgt-text":
+                    retrieve_target_words = retrieve_words[tgt_positions[j][0]: sep_positions[j][0]]
+                    retrieve_target_sentences[j].append(retrieve_target_words)
+                    retrieve_target_lengths[j].append(len(retrieve_target_words))
 
         # re-construct source input
         l2 = l.new(source_lengths)
@@ -628,29 +492,140 @@ def Source_RetrieveSource_RetrieveTarget_Collate(
 
         multi_retrieve_source_l = []
         multi_retrieve_target_l = []
-        for i in range(min(len(sep_positions), args.retrieve_number)):
+        for i in range(args.retrieve_number):
             # re-construct retrieve source input
-            retrieve_source_l = l.new(retrieve_source_lengths[i])
-            retrieve_source_x = x.new(retrieve_source_l.size(0), retrieve_source_l.max()).fill_(args.PAD_ID)
-            for j in range(retrieve_source_l.size(0)):
-                retrieve_source_x[j, -retrieve_source_l[j]:].copy_(retrieve_source_sentences[i][j])
-            multi_retrieve_source_x.append(retrieve_source_x)
-            multi_retrieve_source_l.append(retrieve_source_l)
+            if TM_setting == "bi-text" or TM_setting == "src-text":
+                retrieve_source_l = l.new(retrieve_source_lengths[i])
+                retrieve_source_x = x.new(retrieve_source_l.size(0), retrieve_source_l.max()).fill_(args.PAD_ID)
+                for j in range(retrieve_source_l.size(0)):
+                    retrieve_source_x[j, -retrieve_source_l[j]:].copy_(retrieve_source_sentences[i][j])
+                multi_retrieve_source_x.append(retrieve_source_x)
+                multi_retrieve_source_l.append(retrieve_source_l)
 
             # re-construct retrieve target input
-            retrieve_target_l = l.new(retrieve_target_lengths[i])
-            retrieve_target_x = x.new(retrieve_target_l.size(0), retrieve_target_l.max()).fill_(args.PAD_ID)
-            for j in range(retrieve_target_l.size(0)):
-                retrieve_target_x[j, -retrieve_target_l[j]:].copy_(retrieve_target_sentences[i][j])
-            multi_retrieve_target_x.append(retrieve_target_x)
-            multi_retrieve_target_l.append(retrieve_target_l)
+            if TM_setting == "bi-text" or TM_setting == "tgt-text":
+                retrieve_target_l = l.new(retrieve_target_lengths[i])
+                retrieve_target_x = x.new(retrieve_target_l.size(0), retrieve_target_l.max()).fill_(args.PAD_ID)
+                for j in range(retrieve_target_l.size(0)):
+                    retrieve_target_x[j, -retrieve_target_l[j]:].copy_(retrieve_target_sentences[i][j])
+                multi_retrieve_target_x.append(retrieve_target_x)
+                multi_retrieve_target_l.append(retrieve_target_l)
+
+        return (x2, l2), (multi_retrieve_source_x, multi_retrieve_source_l), (multi_retrieve_target_x, multi_retrieve_target_l)
+
+
+    def Dynamic_Source_RetrieveSource_RetrieveTarget_Split(x, l, args=None):
+        """
+        split source words and retrive words.
+        x: Batch * TimeStep
+        sentence format(left pad) [pad, pad, pad, [APPEND], [SRC], x1, x2, x3, [TGT], y1, y2, y3, [SEP], [SRC], x1, x2, x3, [TGT], y1, y2, y3, [SEP], [eos]]
+        """
+        # choose word to drop
+        source_sentences = []
+        source_lengths = []
+        retrieve_source_sentences = [[]for _ in range(args.retrieve_number)]
+        retrieve_source_lengths = [[]for _ in range(args.retrieve_number)]
+        retrieve_target_sentences = [[]for _ in range(args.retrieve_number)]
+        retrieve_target_lengths = [[]for _ in range(args.retrieve_number)]
+
+
+        for i in range(l.size(0)):
+            words = x[i, -l[i]:]
+            append_position = (words == args.APPEND_ID).nonzero()
+            if len(append_position) == 1:
+                append_position = append_position[0][0]
+            else:
+                append_position = words.size(0)
+
+            if append_position > 0 and append_position < words.size(0):
+                source_words, retrieve_words = words[:append_position], words[append_position:]
+            elif append_position == 0:
+                source_words = x.new([args.UNK_ID])
+                retrieve_words = words
+            else:
+                source_words = words
+                retrieve_words = x.new([args.APPEND_ID])
+                # assert words.split(" "+str(args.APPEND_ID)+" ")  .__len__() == 2, "Retrive sequences must contain one [APPEND] tag! " + words + " len: " + str(words.split(" "+str(self.args.APPEND_ID)+" ").__len__()) + " sent len: {}".format(l[i]) + " APPEND_ID: {}".format(self.args.APPEND_ID)
+
+            source_sentences.append(source_words)
+            source_lengths.append(len(source_words))
+
+            sep_positions = (retrieve_words == args.SEP_ID).nonzero().tolist()
+            src_positions = (retrieve_words == args.SRC_ID).nonzero().tolist()
+            tgt_positions = (retrieve_words == args.TGT_ID).nonzero().tolist()
+            assert len(sep_positions) == len(src_positions) and len(sep_positions) == len(tgt_positions), "Please make sure [SEP] [SRC] [TGT] have the same number of occurrences"
+            all_retrieve_source_sentences = []
+            all_retrieve_source_lengths = []
+            all_retrieve_target_sentences = []
+            all_retrieve_target_lengths = []
+            TM_setting = args.TM_setting if hasattr(args, "TM_setting") else "bi-text"
+            for j in range(len(sep_positions)):
+                if TM_setting == "src-text" or TM_setting == "bi-text":
+                    retrieve_source_words = retrieve_words[src_positions[j][0]: tgt_positions[j][0]]
+                    all_retrieve_source_sentences.append(retrieve_source_words)
+                    all_retrieve_source_lengths.append(len(retrieve_source_words))
+
+                if TM_setting == "tgt-text" or TM_setting == "bi-text":
+                    retrieve_target_words = retrieve_words[tgt_positions[j][0]: sep_positions[j][0]]
+                    all_retrieve_target_sentences.append(retrieve_target_words)
+                    all_retrieve_target_lengths.append(len(retrieve_target_words))
+
+
+            p_prob = calculate_similarity_scores(source_words, all_retrieve_source_sentences)
+            select_index = np.random.choice(len(p_prob), args.retrieve_number, replace=False, p=p_prob).tolist()
+            for j in range(args.retrieve_number):
+                if TM_setting == "src-text" or TM_setting == "bi-text":
+                    retrieve_source_sentences[j].append(all_retrieve_source_sentences[select_index[j]])
+                    retrieve_source_lengths[j].append(all_retrieve_source_lengths[select_index[j]])
+                if TM_setting == "tgt-text" or TM_setting == "bi-text":
+                    retrieve_target_sentences[j].append(all_retrieve_target_sentences[select_index[j]])
+                    retrieve_target_lengths[j].append(all_retrieve_target_lengths[select_index[j]])
+
+        # re-construct source input
+        l2 = l.new(source_lengths)
+        x2 = x.new(l2.size(0), l2.max()).fill_(args.PAD_ID)
+        for i in range(l2.size(0)):
+            x2[i, -l2[i]:].copy_(source_sentences[i])
+
+        multi_retrieve_source_x = []
+        multi_retrieve_target_x = []
+
+        multi_retrieve_source_l = []
+        multi_retrieve_target_l = []
+
+        for i in range(args.retrieve_number):
+            # re-construct retrieve source input
+            if TM_setting == "src-text" or TM_setting == "bi-text":
+                retrieve_source_l = l.new(retrieve_source_lengths[i])
+                retrieve_source_x = x.new(retrieve_source_l.size(0), retrieve_source_l.max()).fill_(args.PAD_ID)
+                for j in range(retrieve_source_l.size(0)):
+                    retrieve_source_x[j, -retrieve_source_l[j]:].copy_(retrieve_source_sentences[i][j])
+                multi_retrieve_source_x.append(retrieve_source_x)
+                multi_retrieve_source_l.append(retrieve_source_l)
+
+            # re-construct retrieve target input
+            if TM_setting == "tgt-text" or TM_setting == "bi-text":
+                retrieve_target_l = l.new(retrieve_target_lengths[i])
+                retrieve_target_x = x.new(retrieve_target_l.size(0), retrieve_target_l.max()).fill_(args.PAD_ID)
+                for j in range(retrieve_target_l.size(0)):
+                    retrieve_target_x[j, -retrieve_target_l[j]:].copy_(retrieve_target_sentences[i][j])
+                multi_retrieve_target_x.append(retrieve_target_x)
+                multi_retrieve_target_l.append(retrieve_target_l)
 
         return (x2, l2), (multi_retrieve_source_x, multi_retrieve_source_l), (multi_retrieve_target_x, multi_retrieve_target_l)
 
     id = torch.LongTensor([s['id'] for s in samples])
     src_tokens = merge('source', left_pad=left_pad_source)
     src_lengths = torch.LongTensor([s['source'].numel() for s in samples])
-    (src_tokens, src_lengths), (RetrieveSource_tokens, RetrieveSource_lengths), (RetrieveTarget_tokens, RetrieveTarget_lengths) = Source_RetrieveSource_RetrieveTarget_Split(src_tokens, src_lengths, args=args)
+
+
+    id = torch.LongTensor([s['id'] for s in samples])
+    src_tokens = merge('source', left_pad=left_pad_source)
+    src_lengths = torch.LongTensor([s['source'].numel() for s in samples])
+    if (args.word_split == "Dynamic-Source-RetrieveSource-RetrieveTarget" and training):
+        (src_tokens, src_lengths), (RetrieveSource_tokens, RetrieveSource_lengths), (RetrieveTarget_tokens, RetrieveTarget_lengths) = Dynamic_Source_RetrieveSource_RetrieveTarget_Split(src_tokens,src_lengths,args=args)
+    else:
+        (src_tokens, src_lengths), (RetrieveSource_tokens, RetrieveSource_lengths), (RetrieveTarget_tokens, RetrieveTarget_lengths) = Source_RetrieveSource_RetrieveTarget_Split(src_tokens, src_lengths, args=args)
 
     if args.noise is not None and training:
         assert len(args.noise.split(",")) == 3, "noise setting must be three probs"
@@ -673,9 +648,7 @@ def Source_RetrieveSource_RetrieveTarget_Collate(
         ntokens = sum(len(s['source']) for s in samples)
 
     predict_ground_truth = None
-    if args.predict_loss:
-        retrieve_tokens_list = list(itertools.chain.from_iterable(zip(RetrieveSource_tokens, RetrieveTarget_tokens)))
-        retrieve_tokens = torch.cat(retrieve_tokens_list, dim=1)
+    def slow_create(retrieve_tokens):
         predict_ground_truth = torch.zeros_like(retrieve_tokens)
         for i in range(predict_ground_truth.size(0)):
             for j in range(predict_ground_truth.size(1)):
@@ -692,6 +665,35 @@ def Source_RetrieveSource_RetrieveTarget_Collate(
                     right_range = min(predict_ground_truth.size(1), j + args.n_gram + 1)
                     predict_ground_truth[i, left_range:right_range] = 1
                     continue
+
+    if args.predict_loss:
+        TM_setting = args.TM_setting if hasattr(args, "TM_setting") else "bi-text"
+        if TM_setting == "bi-text":
+            retrieve_tokens_list = list(itertools.chain.from_iterable(zip(RetrieveSource_tokens, RetrieveTarget_tokens)))
+        elif  TM_setting == "src-text":
+            retrieve_tokens_list = RetrieveSource_tokens
+        elif  TM_setting == "tgt-text":
+            retrieve_tokens_list = RetrieveTarget_tokens
+        retrieve_tokens = torch.cat(retrieve_tokens_list, dim=1)
+        bsz, src_len = src_tokens.size()
+        tgt_len = target.size(1)
+        retrieve_len = retrieve_tokens.size(1)
+        #source bsz x src_len + target bsz x tgt_len: -> bsz x (src_len + tgt_len+4) x retrieve_len
+        special_tag = torch.tensor([args.APPEND_ID, args.SRC_ID, args.TGT_ID, args.SEP_ID]).unsqueeze(0).expand(bsz, 4)
+        all_tokens = torch.cat([src_tokens, target, special_tag], dim=1)
+        all_tokens = all_tokens.unsqueeze(2).expand(bsz, src_len+tgt_len+4, retrieve_len)
+        #source: bsz x src_len -> bsz x 1 x retrieve_len
+        new_retrieve_tokens = retrieve_tokens.unsqueeze(1)
+        predict_ground_truth = (new_retrieve_tokens == all_tokens).sum(1)
+        predict_ground_truth = (predict_ground_truth > 0).long()
+
+        #n_gram
+        if args.n_gram > 0:
+            left_predict_ground_truth = [torch.cat([predict_ground_truth[:,offset:], torch.zeros(bsz, offset).long()], dim=1) for offset in range(0, args.n_gram+1)]
+            right_predict_ground_truth = [torch.cat([torch.zeros(bsz, -offset).long(), predict_ground_truth[:, :retrieve_len+offset]], dim=1)for offset in range(-args.n_gram, 0)]
+            predict_ground_truth = left_predict_ground_truth + right_predict_ground_truth
+            predict_ground_truth = (sum(predict_ground_truth) > 0).long()
+        #slow_create(retrieve_tokens, predict_ground_truth)
 
     batch = {
         'id': id,
@@ -818,18 +820,10 @@ class LanguagePairDataset(FairseqDataset):
                 input_feeding=self.input_feeding, args=self.args, training=self.training
             )
         # bilingual
-        elif self.args.word_split == "Source-RetrieveSource-RetrieveTarget":
+        elif "Source-RetrieveSource-RetrieveTarget" in self.args.word_split:
             # x1 x2 x3 [APPEDN] [SRC] x1 x2 x3 [TGT] y1 y2 [SEP] [SRC] x1 x2 x3 [TGT] y1 y2 [SEP]
             #-> [x1 x2 x3] [[x1 x2 x3] [x1 x2 x3]] [[y1 y2] [y1 y2]]
             return Source_RetrieveSource_RetrieveTarget_Collate(
-                samples, pad_idx=self.src_dict.pad(), eos_idx=self.src_dict.eos(),
-                left_pad_source=self.left_pad_source, left_pad_target=self.left_pad_target,
-                input_feeding=self.input_feeding, args=self.args, training=self.training
-            )
-        elif self.args.word_split == "Dynamic-Source-RetrieveSource-RetrieveTarget":
-            # x1 x2 x3 [APPEDN] [SRC] x1 x2 x3 [TGT] y1 y2 [SEP] [SRC] x1 x2 x3 [TGT] y1 y2 [SEP]
-            #-> [x1 x2 x3] [[x1 x2 x3] [x1 x2 x3]] [[y1 y2] [y1 y2]]
-            return Dynamic_Source_RetrieveSource_RetrieveTarget_Collate(
                 samples, pad_idx=self.src_dict.pad(), eos_idx=self.src_dict.eos(),
                 left_pad_source=self.left_pad_source, left_pad_target=self.left_pad_target,
                 input_feeding=self.input_feeding, args=self.args, training=self.training

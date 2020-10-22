@@ -98,6 +98,8 @@ class TransformerModel(FairseqModel):
         parser.add_argument('--scale', type=float, help='')
         parser.add_argument('--n-gram', type=int, metavar='N',
                             help='')
+        parser.add_argument('--TM-setting', type=str, metavar='N', choices=["src-text","tgt-text","bi-text"],
+                            help='')
 
 
         # fmt: on
@@ -229,7 +231,7 @@ class TransformerEncoder(FairseqEncoder):
         self.use_splitlayer = args.use_splitlayer
         self.use_copylayer = args.use_copylayer
         self.use_segment_emb = args.use_segment_emb if hasattr(args, 'use_segment_emb') else False
-        #self.loss_weight = Weight(2) if self.use_predictlayer else None
+        self.loss_weight = Weight(2) if args.predict_loss else None
         # off
         self.predictlayers = nn.ModuleList([])
         if self.use_predictlayer:
@@ -240,6 +242,8 @@ class TransformerEncoder(FairseqEncoder):
         self.retrieve_number = args.retrieve_number if hasattr(args, "retrieve_number") else 2
         assert self.retrieve_number * 2 + 1 <= MAX_SEGMENT_EMBEDDINGS, "the number of retrieve sentences is too many !"
         self.retrieve_embed_tokens = Embedding(MAX_SEGMENT_EMBEDDINGS, embed_dim, self.padding_idx)
+        self.TM_setting = args.TM_setting if hasattr(args, "TM_setting") else "bi-text"
+
 
 
     def forward(self, src_tokens, src_lengths):
@@ -258,18 +262,30 @@ class TransformerEncoder(FairseqEncoder):
                   padding elements of shape `(batch, src_len)`
         """
         # embed tokens and positions
-        if self.word_split=="Source-RetrieveSource-RetrieveTarget":
+        if self.word_split=="Source-RetrieveSource-RetrieveTarget" or self.word_split=="Dynamic-Source-RetrieveSource-RetrieveTarget":
             src_tokens,  retrieve_source_tokens_list,  retrieve_target_tokens_list = src_tokens
             src_lengths, retrieve_source_lengths_list, retrieve_target_lengths_list = src_lengths
-            assert len(retrieve_source_tokens_list) == len(retrieve_target_tokens_list)
-            assert len(retrieve_source_lengths_list) == len(retrieve_target_lengths_list)
+            if self.TM_setting == "bi-text":
+                assert len(retrieve_source_tokens_list) == len(retrieve_target_tokens_list)
+                assert len(retrieve_source_lengths_list) == len(retrieve_target_lengths_list)
+                # source_retrieve_list = [rs1, rs2] target_retrieve_list = [rt1, rt2] -> [rs1, rt1, rs2, rt2]
+                retrieve_tokens_list = list(itertools.chain.from_iterable(
+                    zip(retrieve_source_tokens_list, retrieve_target_tokens_list)))
+                retrieve_lengths_list = list(itertools.chain.from_iterable(
+                    zip(retrieve_source_lengths_list, retrieve_target_lengths_list)))
+            elif self.TM_setting == "tgt-text":
+                assert len(retrieve_source_tokens_list) == 0
+                assert len(retrieve_source_lengths_list) == 0
+                retrieve_tokens_list = retrieve_target_tokens_list
+                retrieve_lengths_list = retrieve_target_lengths_list
+            elif self.TM_setting == "src-text":
+                assert len(retrieve_target_lengths_list) == 0
+                assert len(retrieve_target_tokens_list) == 0
+                retrieve_tokens_list = retrieve_source_tokens_list
+                retrieve_lengths_list = retrieve_source_lengths_list
             assert src_tokens.size(0) == src_lengths.size(0)
 
-            #source_retrieve_list = [rs1, rs2] target_retrieve_list = [rt1, rt2] -> [rs1, rt1, rs2, rt2]
-            retrieve_tokens_list = list(itertools.chain.from_iterable(
-                zip(retrieve_source_tokens_list, retrieve_target_tokens_list)))
-            retrieve_lengths_list = list(itertools.chain.from_iterable(
-                zip(retrieve_source_tokens_list, retrieve_target_tokens_list)))
+
             concat_tokens_list = [src_tokens] + retrieve_tokens_list
             concat_x = self.embed_tokens(torch.cat(concat_tokens_list, dim=1))
             concat_x = self.embed_scale * concat_x
@@ -325,10 +341,10 @@ class TransformerEncoder(FairseqEncoder):
 
 
         predict_save_index = None
-        new_retrieve_tokens = None
+        new_retrieve_tokens = retrieve_tokens
         predict_prob = None
         for i, predictlayer in enumerate(self.predictlayers):
-            concat_x, predict_save_index, predict_prob, new_retrieve_tokens = predictlayer(concat_x, src_tokens, retrieve_tokens, encoder_states=encoder_states)
+            concat_x, predict_save_index, predict_prob, new_retrieve_tokens, attn_weights = predictlayer(concat_x, src_tokens, retrieve_tokens, encoder_states=encoder_states)
             concat_padding_mask = torch.cat([src_tokens, new_retrieve_tokens], dim=1).eq(self.padding_idx)
 
 
@@ -339,6 +355,7 @@ class TransformerEncoder(FairseqEncoder):
             'new_retrieve_tokens': new_retrieve_tokens, # B x T
             'predict_save_index': predict_save_index,
             'predict_prob': predict_prob,
+            'attn_weights': attn_weights
         }
 
     def reorder_encoder_out(self, encoder_out, new_order):
@@ -371,6 +388,9 @@ class TransformerEncoder(FairseqEncoder):
         if encoder_out['encoder_padding_mask'] is not None:
             encoder_out['encoder_padding_mask'] = \
                 encoder_out['encoder_padding_mask'].index_select(0, new_order)
+        if encoder_out['attn_weights'] is not None:
+            encoder_out['attn_weights'] = \
+                encoder_out['attn_weights'].index_select(0, new_order)
         return encoder_out
 
     def max_positions(self):
@@ -686,7 +706,7 @@ class TransformerPredictLayer(nn.Module):
         #predict_save_index = predict_save_index.masked_fill(~retrieve_padding_mask, 0)  # B x T
         new_retrieve_tokens = retrieve_tokens.masked_fill(~predict_save_index, self.padding_idx)
 
-        return concat_x, predict_save_index, predict_result.transpose(0, 1), new_retrieve_tokens # T x B x c -> B x T x C
+        return concat_x, predict_save_index, predict_result.transpose(0, 1), new_retrieve_tokens, attn_weights # T x B x c -> B x T x C
 
     def maybe_layer_norm(self, layer_norm, x, before=False, after=False):
         assert before ^ after
@@ -1083,6 +1103,7 @@ def JRC_Aquis_transformer(args):
     args.retrieve_number = getattr(args, 'retrieve_number', 2)
     args.noise = getattr(args, "noise", None)
     args.n_gram = getattr(args, "n_gram", 0)
+    args.TM_setting = getattr(args, "TM_setting", "bi-text")
     base_architecture(args)
 
 

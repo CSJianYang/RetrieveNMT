@@ -30,31 +30,36 @@ data:
 
 # list of jobs to run, we run 2 jobs in this example
 jobs:
-- name: train_JRC-Acquis_en2de_select
+#- name: train_JRC-Acquis_en2de_only_select
+#  sku: G4
+#  command:
+#    - bash ./shells/JRC-Acquis/selectlayer/train_JRC-Acquis_en2de.sh
+- name: train_JRC-Acquis_en2de_src-text
   sku: G4
   command:
-    - bash ./shells/JRC-Acquis/train_JRC-Acquis_en2de.sh
-#- name: train_JRC-Acquis_en2de_reset
+    - bash ./shells/JRC-Acquis/src-text/train_JRC-Acquis_en2de.sh
+- name: train_JRC-Acquis_de2en_src-text
+  sku: G4
+  command:
+    - bash ./shells/JRC-Acquis/src-text/train_JRC-Acquis_de2en.sh
+- name: train_JRC-Acquis_en2fr_src-text
+  sku: G4
+  command:
+    - bash ./shells/JRC-Acquis/src-text/train_JRC-Acquis_en2fr.sh
+- name: train_JRC-Acquis_fr2en_src-text
+  sku: G4
+  command:
+    - bash ./shells/JRC-Acquis/src-text/train_JRC-Acquis_fr2en.sh
+- name: train_JRC-Acquis_en2es_src-text
+  sku: G4
+  command:
+    - bash ./shells/JRC-Acquis/src-text/train_JRC-Acquis_en2es.sh
+- name: train_JRC-Acquis_es2en_src-text
+  sku: G4
+  command:
+    - bash ./shells/JRC-Acquis/src-text/train_JRC-Acquis_es2en.sh
+
+#- name: train_JRC-Acquis_fr2en_segment
 #  sku: G4
 #  command:
-#    - bash ./shells/JRC-Acquis/reset/train_JRC-Acquis_en2de.sh
-#- name: train_JRC-Acquis_de2en_reset
-#  sku: G4
-#  command:
-#    - bash ./shells/JRC-Acquis/reset/train_JRC-Acquis_de2en.sh
-#- name: train_JRC-Acquis_en2fr_reset
-#  sku: G4
-#  command:
-#    - bash ./shells/JRC-Acquis/reset/train_JRC-Acquis_en2fr.sh
-#- name: train_JRC-Acquis_fr2en_reset
-#  sku: G4
-#  command:
-#    - bash ./shells/JRC-Acquis/reset/train_JRC-Acquis_fr2en.sh
-#- name: train_JRC-Acquis_en2es_reset
-#  sku: G4
-#  command:
-#    - bash ./shells/JRC-Acquis/reset/train_JRC-Acquis_en2es.sh
-#- name: train_JRC-Acquis_es2en_reset
-#  sku: G4
-#  command:
-#    - bash ./shells/JRC-Acquis/reset/train_JRC-Acquis_es2en.sh
+#    - bash ./shells/JRC-Acquis/train_JRC-Acquis_fr2en.sh

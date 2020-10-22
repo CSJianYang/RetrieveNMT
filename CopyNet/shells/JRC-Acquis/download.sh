@@ -6,5 +6,7 @@ bash philly-fs.bash -cp -r //philly/wu2/msrmt/t-jianya/RetriveNMT/data/JRC-Acqui
 bash philly-fs.bash -cp -r //philly/wu2/msrmt/t-jianya/RetriveNMT/data/JRC-Acquis/RetriveNMT/en-es/es2en/top2/model/CopyNet-es2en/checkpoint_best.pt /home/v-jiaya/RetrieveNMT/data/JRC-Acquis/RetriveNMT/en-es/es2en/top2/model/CopyNet-es2en/
 
 
+bash philly-fs.bash -cp -r //philly/wu2/msrmt/t-jianya/RetriveNMT/data/JRC-Acquis/RetriveNMT/en-de/en2de/top2/model/CopyNet-en2de/\(CopyNet-en2de\)-params.log /home/v-jiaya/RetrieveNMT/data/JRC-Acquis/RetriveNMT/en-de/en2de/top2/model/CopyNet-en2de/
+bash philly-fs.bash -cp -r //philly/wu2/msrmt/t-jianya/RetriveNMT/data/JRC-Acquis/RetriveNMT/en-de/de2en/top2/model/CopyNet-de2en/\(CopyNet-de2en\)-params.log /home/v-jiaya/RetrieveNMT/data/JRC-Acquis/RetriveNMT/en-de/de2en/top2/model/CopyNet-de2en/
 
-bash philly-fs.bash -ls //philly/wu2/msrmt/t-jianya/RetriveNMT/data/JRC-Acquis/RetriveNMT/en-fr/en2fr/top2/model/CopyNet-en2fr/
+bash philly-fs.bash -ls //philly/wu2/msrmt/t-jianya/RetriveNMT/data/JRC-Acquis/RetriveNMT/en-de/en2de/top2/model/CopyNet-en2de/

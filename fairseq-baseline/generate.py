@@ -146,28 +146,6 @@ def main(args):
                     )
 
 
-                    if args.easy_first:
-                        if "<m1>" in hypo_str and "<m2>" in hypo_str:
-                            #print(hypo_str)
-                            str_A, str_B = hypo_str.split("<m2>")
-                            #print(str_B)
-                            #exit()
-                            str_B, str_C = str_B.split("<m1>")
-                            hypo_str = " ".join([str_C.strip(),str_B.strip(),str_A.strip()])
-                            print(hypo_str)
-                            hypo_tokens = tgt_dict.encode_line(hypo_str, add_if_not_exist=True)
-                        elif "</m>" in hypo_str:
-                            str_A, str_B = hypo_str.split("</m>")
-                            hypo_str = " ".join([str_B.strip(), str_A.strip()])
-                            hypo_tokens = tgt_dict.encode_line(hypo_str, add_if_not_exist=True)
-                        elif "<\m>" in hypo_str:
-                            str_A, str_B = hypo_str.split("<\m>")                        
-                            hypo_str = " ".join([" ".join(reversed(str_B.strip().split())), str_A.strip(), ])
-                            hypo_tokens = tgt_dict.encode_line(hypo_str, add_if_not_exist=True)
-
-
-
-
                     trans_results.append((sample_id, hypo_str))
                     if not args.quiet:
                         print('H-{}\t{}\t{}'.format(sample_id, hypo['score'], hypo_str))

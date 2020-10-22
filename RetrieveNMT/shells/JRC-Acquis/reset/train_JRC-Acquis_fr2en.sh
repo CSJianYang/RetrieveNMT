@@ -1,7 +1,7 @@
 nvidia-smi
 CUDA_VISIBLE_DEVICES=0,1,2,3
 TEXT=/mnt/default/RetrieveNMT/data/JRC-Acquis/RetriveNMT/en-fr/fr2en/top2/data-bin/
-MODEL=/hdfs/msrmt/t-jianya/RetriveNMT/data/JRC-Acquis/RetriveNMT/en-fr/en2fr/top2/model/fr2en
+MODEL=/hdfs/msrmt/t-jianya/RetriveNMT/data/JRC-Acquis/RetriveNMT/en-fr/fr2en/top2/model/fr2en
 python3 train.py $TEXT \
     --source-lang fr --target-lang en \
     --optimizer adam --adam-betas '(0.9, 0.98)' --lr-scheduler my_inverse_sqrt --warmup-updates 4000 \

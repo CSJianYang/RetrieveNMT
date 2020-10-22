@@ -4,25 +4,25 @@ GENERATE=/home/v-jiaya/RetrieveNMT/CSTM/generate.py
 src=$1
 tgt=$2
 if [ "$src" == "en" -a "$tgt" == "de" ]; then
-    MODEL=/home/v-jiaya/RetrieveNMT/data/JRC-Acquis/RetriveNMT/en-de/en2de/top2/model/CSTM-en2de/checkpoint_best.pt
+    MODEL=/home/v-jiaya/RetrieveNMT/data/JRC-Acquis/RetriveNMT/en-de/en2de/top2/model/CSTM-en2de/checkpoint_last.pt
     TEXT=/home/v-jiaya/RetrieveNMT/data/JRC-Acquis/RetriveNMT/en-de/en2de/top2/data-bin/
-    lenpen=1.0
+    lenpen=1.3
 elif [ "$src" == "de" -a "$tgt" == "en" ]; then
     MODEL=/home/v-jiaya/RetrieveNMT/data/JRC-Acquis/RetriveNMT/en-de/de2en/top2/model/CSTM-de2en/checkpoint_best.pt
     TEXT=/home/v-jiaya/RetrieveNMT/data/JRC-Acquis/RetriveNMT/en-de/de2en/top2/data-bin/
     lenpen=1.0
 elif [ "$src" == "en" -a "$tgt" == "fr" ]; then
-    MODEL=/home/v-jiaya/RetrieveNMT/data/JRC-Acquis/RetriveNMT/en-fr/en2fr/top2/model/CSTM-en2fr/checkpoint_81_395000.pt
+    MODEL=/home/v-jiaya/RetrieveNMT/data/JRC-Acquis/RetriveNMT/en-fr/en2fr/top2/model/CSTM-en2fr/checkpoint_best.pt
     TEXT=/home/v-jiaya/RetrieveNMT/data/JRC-Acquis/RetriveNMT/en-fr/en2fr/top2/data-bin/
     lenpen=1.0
 elif [ "$src" == "fr" -a "$tgt" == "en" ]; then
-    MODEL=/home/v-jiaya/RetrieveNMT/data/JRC-Acquis/RetriveNMT/en-fr/fr2en/top2/model/CSTM-fr2en/checkpoint_best.pt
+    MODEL=/home/v-jiaya/RetrieveNMT/data/JRC-Acquis/RetriveNMT/en-fr/fr2en/top2/model/CSTM-fr2en/checkpoint_81_395000.pt
     TEXT=/home/v-jiaya/RetrieveNMT/data/JRC-Acquis/RetriveNMT/en-fr/fr2en/top2/data-bin/
     lenpen=1.0
 elif [ "$src" == "en" -a "$tgt" == "es" ]; then
     MODEL=/home/v-jiaya/RetrieveNMT/data/JRC-Acquis/RetriveNMT/en-es/en2es/top2/model/CSTM-en2es/checkpoint_best.pt
     TEXT=/home/v-jiaya/RetrieveNMT/data/JRC-Acquis/RetriveNMT/en-es/en2es/top2/data-bin/
-    lenpen=1.0
+    lenpen=1.5
 elif [ "$src" == "es" -a "$tgt" == "en" ]; then
     MODEL=/home/v-jiaya/RetrieveNMT/data/JRC-Acquis/RetriveNMT/en-es/es2en/top2/model/CSTM-es2en/checkpoint_best.pt
     TEXT=/home/v-jiaya/RetrieveNMT/data/JRC-Acquis/RetriveNMT/en-es/es2en/top2/data-bin/

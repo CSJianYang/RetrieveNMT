@@ -1,10 +1,4 @@
-# Copyright (c) 2017-present, Facebook, Inc.
-# All rights reserved.
-#
-# This source code is licensed under the license found in the LICENSE file in
-# the root directory of this source tree. An additional grant of patent rights
-# can be found in the PATENTS file in the same directory.
-
+import copy
 import math
 
 import torch
@@ -125,11 +119,8 @@ class SequenceGenerator(object):
             if k != 'prev_output_tokens'
         }
 
-        src_tokens = encoder_input['src_tokens']
-        if len(src_tokens) == 3:
-            src_lengths = (src_tokens.ne(self.eos) & src_tokens.ne(self.pad)).long().sum(dim=1)
-        else:
-            src_lengths = (src_tokens.ne(self.eos) & src_tokens.ne(self.pad)).long().sum(dim=1)
+        src_tokens = encoder_input['src_tokens'][0]
+        src_lengths = (src_tokens.ne(self.eos) & src_tokens.ne(self.pad)).long().sum(dim=1)
         input_size = src_tokens.size()
         # batch dimension goes first followed by source lengths
         bsz = input_size[0]
@@ -147,6 +138,7 @@ class SequenceGenerator(object):
 
         # compute the encoder output for each beam
         encoder_outs = model.forward_encoder(encoder_input)
+        orig_encoder_outs = copy.deepcopy(encoder_outs)
         new_order = torch.arange(bsz).view(-1, 1).repeat(1, beam_size).view(-1)
         new_order = new_order.to(src_tokens.device).long()
         encoder_outs = model.reorder_encoder_out(encoder_outs, new_order)
@@ -526,7 +518,7 @@ class SequenceGenerator(object):
         for sent in range(len(finalized)):
             finalized[sent] = sorted(finalized[sent], key=lambda r: r['score'], reverse=True)
 
-        return finalized, encoder_outs
+        return finalized, orig_encoder_outs
 
 
 class EnsembleModel(torch.nn.Module):
