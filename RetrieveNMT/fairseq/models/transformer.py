@@ -343,6 +343,7 @@ class TransformerEncoder(FairseqEncoder):
         predict_save_index = None
         new_retrieve_tokens = retrieve_tokens
         predict_prob = None
+        attn_weights = None
         for i, predictlayer in enumerate(self.predictlayers):
             concat_x, predict_save_index, predict_prob, new_retrieve_tokens, attn_weights = predictlayer(concat_x, src_tokens, retrieve_tokens, encoder_states=encoder_states)
             concat_padding_mask = torch.cat([src_tokens, new_retrieve_tokens], dim=1).eq(self.padding_idx)

@@ -165,6 +165,17 @@ def main(args):
                     if has_target:
                         print('T-{}\t{}'.format(sample_id, target_str))
 
+                # add select tokens
+                select_retrieve_tokens.append([sample_id,
+                                               src_str,
+                                               target_str,
+                                               sample['predict_ground_truth'][i, :],
+                                               retrieve_tokens[i, :],
+                                               encoder_outs[0]['new_retrieve_tokens'][i, :],
+                                               utils.strip_pad(retrieve_tokens[i, :],
+                                                               src_dict.pad()).tolist(),
+                                               utils.strip_pad(encoder_outs[0]['new_retrieve_tokens'][i, :],
+                                                               src_dict.pad()).tolist()])
                 # Process top predictions
                 for i, hypo in enumerate(hypos[i][:min(len(hypos), args.nbest)]):
                     hypo_tokens, hypo_str, alignment = utils.post_process_prediction(
@@ -202,17 +213,7 @@ def main(args):
                         else:
                             scorer.add(target_tokens, hypo_tokens)
 
-                    # add select tokens
-                    select_retrieve_tokens.append([sample_id,
-                                                   src_str,
-                                                   target_str,
-                                                   sample['predict_ground_truth'][i, :],
-                                                   retrieve_tokens[i, :],
-                                                   encoder_outs[0]['new_retrieve_tokens'][i, :],
-                                                   utils.strip_pad(retrieve_tokens[i, :],
-                                                                   src_dict.pad()).tolist(),
-                                                   utils.strip_pad(encoder_outs[0]['new_retrieve_tokens'][i, :],
-                                                                   src_dict.pad()).tolist()])
+
 
             wps_meter.update(num_generated_tokens)
             t.log({'wps': round(wps_meter.avg)})
@@ -251,7 +252,7 @@ def main(args):
     print("Correct Tokens: {}".format(accuracy))
 
     with open("{}.RetrieveNMT.BLEU".format(args.output), "a", encoding="utf-8") as w:
-        w.write('{}->{}: Generate {} with beam={} and lenpen={}: {};\tSelection Ratio: {};\tAccuracy\n'.format(args.source_lang, args.target_lang,
+        w.write('{}->{}: Generate {} with beam={} and lenpen={}: {};\tSelection Ratio: {};\tAccuracy:{}\n'.format(args.source_lang, args.target_lang,
                                                                               args.gen_subset, args.beam,
                                                                               args.lenpen, scorer.result_string(),
                                                                               ratio,

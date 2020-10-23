@@ -32,4 +32,4 @@ else
     exit
 fi
 
-$PYTHON $GENERATE $TEXT/ --path $MODEL --batch-size 32 --beam 8 --source-lang $src --target-lang $tgt --remove-bpe --lenpen $lenpen --min-len 0 --unkpen 0 --no-repeat-ngram-size 4 --output $TEXT/result.txt
+$PYTHON $GENERATE $TEXT/ --path $MODEL --batch-size 28 --beam 8 --source-lang $src --target-lang $tgt --remove-bpe --lenpen $lenpen --min-len 0 --unkpen 0 --no-repeat-ngram-size 4 --output $TEXT/result.txt
